@@ -1,10 +1,12 @@
 # Powder Empire
 
-**Mission 004.5 · Mountain Evolution**
+**Mission 005 · Opening Day**
 
 A ski resort tycoon prototype on a seeded mountain. Survey Frostpeak, build fixed-grip chairlifts, lay out ski trails, and watch guests use the resort. The browser runs the entire project with Three.js, TypeScript, and Vite.
 
-Select **Frostpeak Evolution** in Settings and choose **Generate** to start on the wider mountain. Existing saves open on Frostpeak Classic. Each preset keeps its own local layout. See the [Mountain Evolution mission report](docs/mission-004-5/REPORT.md) for the validated three-lift, eight-trail layout and screenshots.
+Select **Frostpeak Evolution** in Settings and choose **Generate** to start on the wider mountain. Saves created before terrain versioning open on Frostpeak Classic. Each preset keeps its own local layout. See the [Mountain Evolution mission report](docs/mission-004-5/REPORT.md) for the validated three-lift, eight-trail layout and screenshots.
+
+Open **Resort**, place the surveyed entrance or select another level base site, then build an accessible lift and open ski circuit. Set the day-ticket price and open the resort. Financial details break out revenue, lift expenses, and guest satisfaction. Closing stops admissions and gives current visitors time to leave. The end-of-day report stays open until you advance to the next day. [Opening Day mission report](docs/mission-005/REPORT.md)
 
 ## Run locally
 
@@ -72,4 +74,4 @@ Open **Trails**, tap a start and downhill waypoints, then choose a width and rev
 
 ## Welcome guests
 
-Open an operating lift and connect its upper station to an open, skill-appropriate trail with a return to a lower terminal or the base. Open **Guests**, select a skier, and choose **Follow Guest**. [Mission 004 report and playtest checklist](docs/MISSION-004.md)
+Build an entrance, then connect an operating lift to an open, skill-appropriate trail with a return to a lower terminal or the base. Open the resort and choose **Guests**, select a skier, and choose **Follow Guest**. [Mission 004 report and playtest checklist](docs/MISSION-004.md)

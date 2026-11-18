@@ -18,6 +18,10 @@ import { connectionZones, snapEndpoint } from './trails/anchors';
 import { createGuestSimulation } from './guests/simulation';
 import { createGuestLayer } from './guests/render';
 import { bindGuestPanel } from './guests/panel';
+import { economy } from './business/economy';
+import { entranceGate, entranceRadius } from './business/entrance';
+import { bindBusinessPanel } from './business/panel';
+import { entranceLayer } from './business/render';
 import './style.css';
 
 const preferences = loadPreferences();
@@ -68,7 +72,7 @@ function start() {
   cameras.reset();
   let mountain = createMountain(map);
   let resort = createResort(map, saved);
-  let visitors = createGuestSimulation(map,resort);
+  let visitors = createGuestSimulation(map,resort,'opening-day');
   const people = createGuestLayer(scene);
   let selectedGuest: number | undefined;
   let following = false, guestPace = 1, guestClock = 0;
@@ -76,6 +80,9 @@ function start() {
   let selected: number | undefined;
   const lifts = createLiftLayer(scene);
   const trails = createTrailLayer(scene);
+  const entrance = entranceLayer(scene);
+  let entranceDraft: GroundPoint | undefined;
+  let savedRevision = resort.business.revision, nextCheckpoint = 0;
   let trailDraft: TrailDraft | undefined;
   let selectedTrail: number | undefined;
   let availableTrees: GroundPoint[] = [];
@@ -114,17 +121,28 @@ function start() {
     cameras.resize(width, height);
     dirty = true;
   };
-  const persist = () => {
-    visitors.refresh();
+  const checkpoint = () => {
+    savedRevision = resort.business.revision;
     if (writeResort(storage, resort.snapshot())) return true;
     liftPanel.notice('Storage is unavailable. Resort changes will last for this session only.');
     return false;
   };
+  const persist = () => {
+    visitors.refresh();
+    drawEntrance();
+    return checkpoint();
+  };
   const clearScenery = () => {
     const mask = sceneryMasks([...resort.lifts.values()].map(lift => lift.alignment),
       [...resort.trails.values()].map(trail => trail.route));
-    mountain.clearScenery(mask.tree, mask.rock);
-    availableTrees = mountain.forestPoints.filter(point => !mask.tree(point));
+    const building = resort.business.data.entrance;
+    const gate = building && entranceGate(building);
+    const clearEntrance = (point: GroundPoint) => !!building && (
+      Math.hypot(point.x-building.x,point.z-building.z) < entranceRadius+3 ||
+      Math.hypot(point.x-gate!.x,point.z-gate!.z) < 6);
+    const hideTree = (point: GroundPoint) => clearEntrance(point) || mask.tree(point);
+    mountain.clearScenery(hideTree,point=>clearEntrance(point) || mask.rock(point));
+    availableTrees = mountain.forestPoints.filter(point => !hideTree(point));
   };
   function refreshTrailDraft() {
     if (trailDraft) {
@@ -160,6 +178,8 @@ function start() {
   }
   const liftPanel = bindLiftPanel(root, {
     start() {
+      closeEntranceDraft();
+      businessPanel.show(false);
       if (construction.draft) return;
       trailDraft = undefined;
       selectedTrail = undefined;
@@ -228,6 +248,8 @@ function start() {
   });
   const trailPanel = bindTrailPanel(root, {
     start() {
+      closeEntranceDraft();
+      businessPanel.show(false);
       if (trailDraft) return;
       construction.cancel();
       selected = selectedTrail = undefined;
@@ -347,8 +369,53 @@ function start() {
       if (!cameras.explore) switchMode();
       following=true;cameras.track(guest);updateGuests();
     },
-    pace(n) { if (n===1||n===2||n===4||n===8) guestPace=n; }
+    pace(n) { if (n===0||n===1||n===2||n===4||n===8) guestPace=n; }
   });
+  function drawEntrance() {
+    const location = entranceDraft ?? resort.business.data.entrance;
+    const plan = location && resort.entrancePlan(location);
+    entrance.draw(map,location,!!entranceDraft,!plan?.issues.length,plan?.paths.map(x=>x.path));
+    businessPanel.draft(entranceDraft ? plan : undefined,resort.funds>=economy.entranceCost,plan?.usable);
+    dirty = true;
+  }
+  function closeEntranceDraft() {
+    if (!entranceDraft) return;
+    entranceDraft = undefined;
+    drawEntrance();
+  }
+  const businessPanel = bindBusinessPanel(root,{
+    place() {
+      if (resort.business.data.entrance) return;
+      construction.cancel();
+      selected = selectedTrail = trailDraft = undefined;
+      trails.draft(map,[]);
+      updateLiftPanel();
+      marker.visible = false;
+      entranceDraft = resort.suggestEntrance();
+      drawEntrance();
+    },
+    suggested() { entranceDraft = resort.suggestEntrance(); drawEntrance(); },
+    accept() {
+      if (!entranceDraft || !resort.buildEntrance(entranceDraft)) return;
+      entranceDraft = undefined;
+      clearScenery();
+      persist();
+      businessPanel.show(true);
+      businessPanel.update(resort,visitors);
+    },
+    cancel() { closeEntranceDraft(); businessPanel.show(true); },
+    price(value) { if (resort.business.setPrice(value)) checkpoint(); businessPanel.update(resort,visitors); },
+    toggle() {
+      const changed = resort.business.data.phase === 'open'
+        ? resort.business.close() : resort.business.open(visitors.stats().circuits > 0);
+      if (changed) checkpoint();
+      businessPanel.update(resort,visitors);
+    },
+    endDay() { if (resort.business.endDay()) checkpoint(); businessPanel.update(resort,visitors); },
+    nextDay() { if (resort.business.nextDay()) checkpoint(); businessPanel.update(resort,visitors); }
+  });
+  drawEntrance();
+  businessPanel.update(resort,visitors);
   updateGuests();
   updateSettings = (next,version=map.version) => {
     if (map.seed !== next.seed || map.version !== version) {
@@ -367,13 +434,14 @@ function start() {
         }
         const savedPreset=readResort(storage,next.seed,version);
         if (savedPreset.terrainVersion===version && (savedPreset.seed===next.seed || next.seed===map.seed)) nextSave=savedPreset;
-        else if (savedPreset.terrainVersion===version && savedPreset.seed!==next.seed && savedPreset.nextId+savedPreset.nextTrailId>2 &&
+        else if (savedPreset.terrainVersion===version && savedPreset.seed!==next.seed && (savedPreset.nextId+savedPreset.nextTrailId>2 || savedPreset.business.entrance || savedPreset.business.day>1) &&
           !window.confirm('The other preset has a layout on another seed. Replace it with this new seed?')) return false;
       }
       for (const id of resort.lifts.keys()) lifts.remove(id);
       for (const id of resort.trails.keys()) trails.remove(id);
       trailDraft = undefined;
       selectedTrail = undefined;
+      entranceDraft = undefined;
       trails.draft(map, []);
       mountain.dispose();
       next.seed = nextSave.seed;
@@ -382,7 +450,7 @@ function start() {
       resort = createResort(map, nextSave);
       for(const lift of resort.lifts.values()) lifts.add(map,lift);
       for(const trail of resort.trails.values()) trails.add(map,trail);
-      visitors = createGuestSimulation(map,resort);
+      visitors = createGuestSimulation(map,resort,'opening-day');
       selectGuest();
       people.update(visitors.guests.values(),guestClock);
       construction = createConstruction(map, resort);
@@ -397,7 +465,7 @@ function start() {
       ui.inspect();
       updateLiftPanel();
     }
-    visitors.setLimit(next.quality==='low'?20:next.quality==='high'?32:24);
+    visitors.setLimit(economy.guestCap[next.quality]);
     renderQuality = next.quality;
     mountain.quality(next);
     cameras.reducedMotion = next.reducedMotion;
@@ -413,6 +481,10 @@ function start() {
     pointer.set((x - rect.left) / rect.width * 2 - 1, 1 - (y - rect.top) / rect.height * 2);
     ray.setFromCamera(pointer, view);
     const hit = ray.intersectObject(mountain.surface)[0];
+    if (entranceDraft) {
+      if (hit) { entranceDraft = {x:hit.point.x,z:hit.point.z}; drawEntrance(); }
+      return;
+    }
     if (trailDraft) {
       if (hit) placeTrailPoint({ x: hit.point.x, z: hit.point.z });
       return;
@@ -470,11 +542,15 @@ function start() {
     dirty = true;
   });
   let last = performance.now(), accumulator=0, lastStats=0;
-  document.addEventListener('visibilitychange',()=>{last=performance.now();accumulator=0;});
+  document.addEventListener('visibilitychange',()=>{
+    last=performance.now();accumulator=0;
+    if (document.hidden) checkpoint();
+  });
+  window.addEventListener('pagehide',()=>checkpoint());
   renderer.setAnimationLoop(time => {
     const dt = Math.max(0, (time - last) / 1000);
     last = time;
-    if (context.isContextLost()) return;
+    if (context.isContextLost() || document.hidden) return;
     accumulator += Math.min(.2, dt)*guestPace;
     const hadGuests = visitors.guests.size > 0;
     let advanced=false;
@@ -488,7 +564,14 @@ function start() {
       lifts.animate(resort.lifts.values());
       dirty ||= hadGuests || visitors.guests.size>0 || [...resort.lifts.values()].some(lift=>lift.running);
     }
-    if(time-lastStats>250){updateGuests();lastStats=time;}
+    if (resort.business.revision !== savedRevision ||
+      (time >= nextCheckpoint && ['open','closed','ending'].includes(resort.business.data.phase))) {
+      nextCheckpoint = time + 1800;
+      checkpoint();
+    }
+    if (time-lastStats>250) {
+      updateGuests(); businessPanel.update(resort,visitors); lastStats=time;
+    }
     view = cameras.update(Math.min(.1, dt), map);
     if (!dirty && previousPose.equals(view.matrixWorld) && previousProjection.equals(view.projectionMatrix)) return;
     previousPose.copy(view.matrixWorld);

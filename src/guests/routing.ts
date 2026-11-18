@@ -3,7 +3,7 @@ import type { GroundPoint, LiftAlignment } from '../lifts/alignment.ts';
 import type { Heightmap } from '../terrain.ts';
 import type { BuiltTrail } from '../trails/network.ts';
 import { TRAIL } from '../trails/route.ts';
-import { pedestrianPath, transferBudget } from '../trails/transfer.ts';
+import { pedestrianPath, transferBudget, type Obstacle } from '../trails/transfer.ts';
 
 export type Skill = 0 | 1 | 2;
 export const skillNames = ['Beginner', 'Intermediate', 'Advanced'] as const;
@@ -14,7 +14,8 @@ export interface Circuit {
   lift: OperatingLift; trails: BuiltTrail[];
   arrival: Path; transfers: Path[]; returnPath: Path; departure: Path; exitLift?: number;
 }
-type Network = { lifts: ReadonlyMap<number, OperatingLift>; trails: ReadonlyMap<number, BuiltTrail> };
+export interface RoutingAccess { start: GroundPoint; obstacles: readonly Obstacle[] }
+type Network = { lifts: ReadonlyMap<number, OperatingLift>; trails: ReadonlyMap<number, BuiltTrail>; routingAccess?: RoutingAccess };
 export const walkable = (map: Heightmap, a: GroundPoint, b: GroundPoint) => !!pedestrianPath(map,a,b,transferBudget.base);
 const beginning = (trail: BuiltTrail) => trail.route.samples[0];
 const ending = (trail: BuiltTrail) => trail.route.samples[trail.route.samples.length-1];
@@ -34,14 +35,19 @@ export function unloadPoint(l: LiftAlignment) {
 export function evaluateNetwork(resort: Network, map: Heightmap, skill: Skill, focus?: number) {
   const result: Circuit[] = [], reasons = new Set<string>();
   const base = map.sites.base;
+  const entryTopology = resort.routingAccess;
+  const entry = entryTopology?.start ?? base;
+  const accessName = entryTopology ? 'the entrance' : 'the resort base';
+  const obstacles = entryTopology?.obstacles;
+  const walk = (from: GroundPoint, to: GroundPoint, budget: number) => pedestrianPath(map,from,to,budget,obstacles);
   const usable = [...resort.trails.values()].filter(trail => suits(trail,skill));
   const byId = new Map(usable.map(trail=>[trail.id,trail]));
   const baseAccess = new Map<number, { arrival: Path; departure: Path }>();
   for (const lift of resort.lifts.values()) {
     if (!lift.running) continue;
     const queue = queuePoint(lift.alignment);
-    const arrival = pedestrianPath(map,base,queue,transferBudget.base);
-    const departure = pedestrianPath(map,queue,base,transferBudget.base);
+    const arrival = walk(entry,queue,transferBudget.base);
+    const departure = walk(queue,entry,transferBudget.base);
     if (arrival && departure) baseAccess.set(lift.id,{arrival,departure});
   }
 
@@ -63,10 +69,10 @@ export function evaluateNetwork(resort: Network, map: Heightmap, skill: Skill, f
     }
     const access = baseAccess.get(id);
     if (!access) {
-      if (diagnose) reasons.add('No safe walking route from the resort base to ' + lift.name + '.');
+      if (diagnose) reasons.add('No safe walking route from ' + accessName + ' to ' + lift.name + '.');
       continue;
     }
-    const transfer = pedestrianPath(map,unloadPoint(lift.alignment),beginning(first),transferBudget.terminal);
+    const transfer = walk(unloadPoint(lift.alignment),beginning(first),transferBudget.terminal);
     if (!transfer) {
       if (diagnose) reasons.add('No safe transfer from ' + lift.name + ' upper station to the trail start.');
       continue;
@@ -80,7 +86,7 @@ export function evaluateNetwork(resort: Network, map: Heightmap, skill: Skill, f
         for (const lowerId of last.connections.lowerLiftIds) {
           const candidate = resort.lifts.get(lowerId);
           const exitAccess = baseAccess.get(lowerId);
-          const returnPath = candidate && pedestrianPath(map,end,queuePoint(candidate.alignment),transferBudget.terminal);
+          const returnPath = candidate && walk(end,queuePoint(candidate.alignment),transferBudget.terminal);
           if (exitAccess && returnPath) {
             result.push({lift,trails:path.trails,transfers:path.transfers,arrival:access.arrival,returnPath,
               departure:exitAccess.departure,exitLift:lowerId});
@@ -88,17 +94,17 @@ export function evaluateNetwork(resort: Network, map: Heightmap, skill: Skill, f
             break;
           }
           if (candidate) reasons.add(!candidate.running ? candidate.name + ' is stopped.' :
-            !exitAccess ? 'No safe walking route between ' + candidate.name + ' and the resort base.' :
+            !exitAccess ? 'No safe walking route between ' + candidate.name + ' and ' + accessName + '.' :
             'No safe transfer from the trail end to ' + candidate.name + ' lower station.');
         }
         if (exitFound) break;
         if (last.connections.reachesBase) {
-          const returnPath = pedestrianPath(map,end,base,transferBudget.terminal);
+          const returnPath = walk(end,entry,entryTopology ? transferBudget.base : transferBudget.terminal);
           if (returnPath) {
             result.push({lift,trails:path.trails,transfers:path.transfers,arrival:access.arrival,returnPath,departure:[]});
             break;
           }
-          reasons.add('No safe walking route from the trail end to the resort base.');
+          reasons.add('No safe walking route from the trail end to ' + accessName + '.');
         }
       }
       for (const nextId of last.connections.outgoingTrailIds) {
@@ -110,7 +116,7 @@ export function evaluateNetwork(resort: Network, map: Heightmap, skill: Skill, f
         const includesFocus = path.includesFocus || next.id === focus;
         const key = next.id+':'+includesFocus;
         if (visited.has(key)) continue;
-        const crossing = pedestrianPath(map,end,beginning(next),transferBudget.junction);
+        const crossing = walk(end,beginning(next),transferBudget.junction);
         if (!crossing) {
           if (includesFocus) reasons.add('No safe walking transfer between ' + last.name + ' and ' + next.name + '.');
           continue;

@@ -13,12 +13,12 @@ export function createUI(root: HTMLElement, preferences: Preferences, actions: A
   root.innerHTML = `
     <main class="world" aria-label="Interactive ski resort terrain"></main>
     <header class="topbar">
-      <div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i></span><div><h1>POWDER<span> EMPIRE</span></h1><p>MISSION 004.5.1 <b> / </b> CONNECTION RESCUE</p></div></div>
+      <div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i></span><div><h1>POWDER<span> EMPIRE</span></h1><p>MISSION 005 <b> / </b> OPENING DAY</p></div></div>
       <div class="status" aria-label="Resort status">
-        <span class="prototype" title="Weather and date are prototype values"><i></i> PROTOTYPE</span>
+        <span class="prototype" title="Weather is a prototype value"><i></i> PROTOTYPE</span>
         <div class="stat"><span>FUNDS</span><strong id="resort-funds" aria-live="polite">$250,000</strong></div>
         <div class="stat weather"><span>WEATHER</span><strong>❄ &nbsp;−6 °C</strong></div>
-        <div class="stat"><span>RESORT DATE</span><strong>Dec 01 <small>· Day 1</small></strong></div>
+        <div class="stat"><span>RESORT TIME</span><strong id="resort-day">Day 1 · 9:00</strong></div>
       </div>
       <button class="settings icon" type="button" aria-label="Settings" title="Settings">⚙︎</button>
     </header>
@@ -86,7 +86,7 @@ export function createUI(root: HTMLElement, preferences: Preferences, actions: A
             <div><dt>Waiting</dt><dd id="guest-waiting">0</dd></div><div><dt>Riding</dt><dd id="guest-riding">0</dd></div>
             <div><dt>Skiing</dt><dd id="guest-skiing">0</dd></div><div><dt>Completed runs</dt><dd id="guest-runs">0</dd></div>
             <div><dt>Usable circuits</dt><dd id="guest-circuits">0</dd></div>
-            <div><dt><label for="guest-pace">Simulation speed</label></dt><dd><select id="guest-pace"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option></select></dd></div>
+            <div><dt><label for="guest-pace">Simulation speed</label></dt><dd><select id="guest-pace"><option value="1">1×</option><option value="0">Pause</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option></select></dd></div>
           </dl>
           <button id="guest-find" type="button" disabled>Find a guest</button>
           <div id="guest-info" hidden>
@@ -95,7 +95,10 @@ export function createUI(root: HTMLElement, preferences: Preferences, actions: A
             <dl class="lift-stats">
               <div><dt>Lift</dt><dd id="guest-lift"></dd></div><div><dt>Trail</dt><dd id="guest-trail"></dd></div>
               <div><dt>Runs</dt><dd id="guest-own-runs"></dd></div>
+              <div><dt>Satisfaction</dt><dd id="guest-satisfaction"></dd></div>
+              <div><dt>Day ticket</dt><dd id="guest-ticket"></dd></div>
             </dl>
+            <p id="guest-experience"></p>
             <button id="guest-follow" class="lift-primary" type="button">Follow Guest</button>
           </div>
         </div>

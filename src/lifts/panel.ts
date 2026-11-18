@@ -1,3 +1,4 @@
+import { hourlyCost } from '../business/economy';
 import { FIXED_GRIP, type LiftAlignment } from './alignment.ts';
 import type { Draft } from './construction.ts';
 import type { OperatingLift } from './resort.ts';
@@ -59,7 +60,8 @@ export function bindLiftPanel(root: HTMLElement, actions: Actions) {
     ];
     if (managing) {
       const capacity = Math.floor(3600 * FIXED_GRIP.speed * plan.chairCount * FIXED_GRIP.passengers / plan.loopLength);
-      values.push(['Chairs', String(plan.chairCount)], ['Est. capacity', number.format(capacity) + ' / hr']);
+      values.push(['Chairs', String(plan.chairCount)], ['Est. capacity', number.format(capacity) + ' / hr'],
+        ['Running cost', currency.format(hourlyCost(plan)) + ' / hr']);
     }
     return values.map(([label, value]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join('');
   }

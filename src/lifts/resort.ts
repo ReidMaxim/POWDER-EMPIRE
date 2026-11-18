@@ -1,4 +1,6 @@
-import { circuitStatus } from '../guests/routing.ts';
+import { createBusiness, economy, freshBusiness, readBusiness, type BusinessSave } from '../business/economy.ts';
+import { entranceGate, entranceObstacle, entranceRadius, liftObstacles, planEntrance, suggestedEntrance } from '../business/entrance.ts';
+import { circuitStatus, findCircuits, type RoutingAccess } from '../guests/routing.ts';
 import { isTerrainVersion, type Heightmap, type TerrainVersion } from '../terrain.ts';
 import { FIXED_GRIP, planLift, wrapDistance, type GroundPoint, type LiftAlignment } from './alignment.ts';
 
@@ -19,7 +21,8 @@ export interface LiftRecord {
 }
 
 export interface ResortSave {
-  version: 3;
+  version: 4;
+  business: BusinessSave;
   terrainVersion: TerrainVersion;
   seed: string;
   funds: number;
@@ -55,25 +58,26 @@ function trailValid(value: unknown): value is TrailRecord {
   return Number.isSafeInteger(item.id) && item.id > 0 && typeof item.name === 'string' &&
     item.name.trim().length > 0 && item.name.length <= 50 && isWidth(item.width) &&
     typeof item.open === 'boolean' && BANDS.includes(item.difficulty) && Number.isSafeInteger(item.cost) &&
-    item.cost >= TRAIL.baseCost && item.cost <= STARTING_FUNDS && Array.isArray(item.points) &&
+    item.cost >= TRAIL.baseCost && Array.isArray(item.points) &&
     item.points.length >= 2 && item.points.length <= TRAIL.maxPoints && item.points.every(pointValid);
 }
 
 export function freshResort(seed: string, terrainVersion:TerrainVersion = 'classic'): ResortSave {
-  return { version: 3, terrainVersion, seed, funds: STARTING_FUNDS, nextId: 1, lifts: [], trails: [], nextTrailId: 1 };
+  return { version: 4, business:freshBusiness(), terrainVersion, seed, funds: STARTING_FUNDS, nextId: 1, lifts: [], trails: [], nextTrailId: 1 };
 }
 
 export function readResort(storage: StoragePort | undefined, legacySeed: string, slot?:TerrainVersion): ResortSave {
   try {
     const save = JSON.parse(storage?.getItem(slot ? saveKey+'.'+slot : saveKey) ?? 'null') as (Omit<ResortSave, 'version'> & { version: number }) | null;
-    if (!save || (save.version !== 1 && save.version !== 2 && save.version !== 3) || !seedValid(save.seed) || !Number.isSafeInteger(save.funds) ||
-      save.funds < 0 || save.funds > STARTING_FUNDS || !Number.isSafeInteger(save.nextId) || save.nextId < 1 ||
-      !Array.isArray(save.lifts) || save.lifts.length > Math.floor(STARTING_FUNDS / FIXED_GRIP.baseCost) ||
+    if (!save || (save.version !== 1 && save.version !== 2 && save.version !== 3 && save.version !== 4) || !seedValid(save.seed) || !Number.isSafeInteger(save.funds) ||
+      save.funds < 0 || !Number.isSafeInteger(save.nextId) || save.nextId < 1 ||
+      !Array.isArray(save.lifts) ||
       !save.lifts.every(liftValid)) return freshResort(legacySeed);
     if (new Set(save.lifts.map(lift => lift.id)).size !== save.lifts.length ||
       save.lifts.some(lift => lift.id >= save.nextId)) return freshResort(legacySeed);
-    const version = save.version === 3 && isTerrainVersion(save.terrainVersion) ? save.terrainVersion : 'classic';
-    const base = { ...freshResort(save.seed,version), funds: save.funds, nextId: save.nextId, lifts: save.lifts };
+    const version = save.version >= 3 && isTerrainVersion(save.terrainVersion) ? save.terrainVersion : 'classic';
+    const base = { ...freshResort(save.seed,version), funds: save.funds, nextId: save.nextId, lifts: save.lifts,
+      business:save.version === 4 ? readBusiness(save.business) : freshBusiness() };
     if (save.version === 1) return base;
     if (!Array.isArray(save.trails) || !Number.isSafeInteger(save.nextTrailId) || save.nextTrailId < 1) return base;
     const trails = save.trails.filter(trailValid).filter(trail => trail.id < save.nextTrailId);
@@ -100,6 +104,11 @@ export function createResort(map: Heightmap, save: ResortSave) {
   const trails = new Map<number, BuiltTrail>();
   const terminals = () => Array.from(lifts.values(), lift => ({ id: lift.id, lower: lift.alignment.lower, upper: lift.alignment.upper, towers: lift.alignment.towers }));
   let nextId = state.nextId, funds = state.funds, nextTrailId = state.nextTrailId;
+  const business = createBusiness(state.business,{balance:()=>funds,change:amount=>{ funds += amount; }});
+  const routingAccess = (): RoutingAccess | undefined => {
+    const entrance = business.data.entrance;
+    return entrance ? {start:entranceGate(entrance),obstacles:[...liftObstacles(lifts.values()),entranceObstacle(entrance)]} : undefined;
+  };
   for (const record of state.lifts) {
     const { alignment } = planLift(map, record.lower, record.upper, alignments());
     if (alignment) lifts.set(record.id, { ...record, alignment, phase: wrapDistance(record.phase, alignment.loopLength) });
@@ -121,6 +130,11 @@ export function createResort(map: Heightmap, save: ResortSave) {
   function proposeTrail(points: readonly GroundPoint[], width: TrailWidth, forest: readonly GroundPoint[] = []) {
     const proposal = planTrail(map, points, width, terminals(), forest);
     if (proposal.route && proposal.route.cost > funds) proposal.issues.push('Insufficient resort funds.');
+    const entrance = business.data.entrance;
+    if (entrance && proposal.route && (proposal.route.contains(entranceGate(entrance)) ||
+      proposal.route.samples.some(p=>Math.hypot(p.x-entrance.x,p.z-entrance.z)<entranceRadius+width/2+2))) {
+      proposal.issues.push('Move the trail away from the entrance building and arrival plaza.');
+    }
     const connections = proposal.route ? analyzeConnections(directConnections(map, 0, proposal.route, terminals(), trails.values()), trails) : undefined;
     let circuit: string | undefined;
     if (proposal.route && connections && !proposal.issues.length) {
@@ -130,7 +144,7 @@ export function createResort(map: Heightmap, save: ResortSave) {
       const graph = new Map(trails).set(draft.id,draft);
       for (const [id,trail] of trails) graph.set(id,{...trail,
         connections:directConnections(map,id,trail.route,terminals(),graph.values())});
-      circuit = circuitStatus({lifts,trails:graph},map,draft);
+      circuit = circuitStatus({lifts,trails:graph,routingAccess:routingAccess()},map,draft);
     }
     return { ...proposal, connections, circuit };
   }
@@ -138,9 +152,24 @@ export function createResort(map: Heightmap, save: ResortSave) {
   return {
     lifts,
     trails,
+    business,
+    get routingAccess() { return routingAccess(); },
+    suggestEntrance() { return suggestedEntrance(map,lifts.values(),trails.values()); },
+    entrancePlan(point: GroundPoint) {
+      const plan = planEntrance(map,point,lifts.values(),trails.values());
+      const access = {start:plan.gate,obstacles:[...liftObstacles(lifts.values()),entranceObstacle(point)]};
+      const usable = !plan.issues.length && !!findCircuits({lifts,trails,routingAccess:access},map,2).length;
+      return {...plan,usable};
+    },
+    buildEntrance(point: GroundPoint) {
+      if (business.data.entrance || funds < economy.entranceCost || planEntrance(map,point,lifts.values(),trails.values()).issues.length) return false;
+      business.data.entrance = {...point};
+      funds -= economy.entranceCost;
+      return true;
+    },
     get nextTrailName() { return `Trail ${String(nextTrailId).padStart(2, '0')}`; },
     proposeTrail,
-    circuitStatus(trail: BuiltTrail) { return circuitStatus({lifts,trails},map,trail); },
+    circuitStatus(trail: BuiltTrail) { return circuitStatus({lifts,trails,routingAccess:routingAccess()},map,trail); },
     constructTrail(points: readonly GroundPoint[], width: TrailWidth, forest: readonly GroundPoint[]) {
       const proposal = proposeTrail(points, width, forest);
       const { route, connections } = proposal;
@@ -172,13 +201,19 @@ export function createResort(map: Heightmap, save: ResortSave) {
     },
     get funds() { return funds; },
     get nextName() { return `Chairlift ${String(nextId).padStart(2, '0')}`; },
-    needsNewResortConfirmation() { return nextId > 1 || nextTrailId > 1 || funds !== STARTING_FUNDS; },
+    needsNewResortConfirmation() { return nextId > 1 || nextTrailId > 1 || funds !== STARTING_FUNDS || !!business.data.entrance || business.data.day > 1; },
     propose(lower: GroundPoint, upper: GroundPoint) {
       const result = planLift(map, lower, upper, alignments());
       const alignment = result.alignment;
       if (alignment && [...trails.values()].some(({route}) =>
         route.reservesTerminal(lower) || route.reservesTerminal(upper) || alignment.towers.some(route.reservesTower))) {
         result.issues.push('A lift station or tower overlaps an existing trail. Move the alignment away from the corridor.');
+      }
+      const entrance = business.data.entrance;
+      if (entrance && result.alignment && liftObstacles([{alignment:result.alignment}]).some(obstacle =>
+        Math.hypot(obstacle.x-entrance.x,obstacle.z-entrance.z) < obstacle.radius+entranceRadius+5 ||
+        Math.hypot(obstacle.x-entrance.x,obstacle.z-entrance.z-12) < obstacle.radius+3)) {
+        result.issues.push('Move the lift away from the entrance and arrival plaza.');
       }
       if (result.alignment && result.alignment.cost > funds) result.issues.push('Insufficient resort funds.');
       return result;
@@ -215,7 +250,7 @@ export function createResort(map: Heightmap, save: ResortSave) {
       return moved;
     },
     snapshot(): ResortSave {
-      return { version: 3, terrainVersion:map.version, seed: map.seed, funds, nextId, nextTrailId,
+      return { version: 4, business:business.snapshot(), terrainVersion:map.version, seed: map.seed, funds, nextId, nextTrailId,
         lifts: Array.from(lifts.values(), ({ alignment: _alignment, ...record }) => record),
         trails: Array.from(trails.values(), ({ route: _route, ...record }) => record) };
     }

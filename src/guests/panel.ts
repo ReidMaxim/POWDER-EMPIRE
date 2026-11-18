@@ -43,6 +43,9 @@ export function bindGuestPanel(root:HTMLElement, actions:{find():void;close():vo
       el('guest-lift').textContent=resort.lifts.get(g.circuit.lift.id)?.name??'—';
       el('guest-trail').textContent=resort.trails.get(g.circuit.trails[g.leg]?.id)?.name??'—';
       el('guest-own-runs').textContent=String(g.runs);
+      el('guest-satisfaction').textContent=Math.round(g.satisfaction)+'%';
+      el('guest-ticket').textContent=g.ticket === undefined ? '—' : '$'+g.ticket+' paid';
+      el('guest-experience').textContent=g.experience;
       el('guest-follow').textContent=following?'Exit follow':'Follow Guest';
     }
   };
