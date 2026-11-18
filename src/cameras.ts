@@ -19,6 +19,19 @@ export class ResortCameras {
   private readonly focus = home.clone();
   private readonly shownFocus = home.clone();
   private readonly offset = new T.Vector3();
+  private tracked?: { x:number; y:number; z:number };
+  private readonly trackedFocus = new T.Vector3();
+  private trackingSpan = 110;
+  private trackingYaw = Math.PI/4;
+  private trackingPitch = .44;
+  track(target?:{x:number;y:number;z:number}) {
+    if (target && !this.tracked) {
+      this.trackingSpan = 110;
+      this.trackingYaw = Math.PI/4 + Math.round((this.shownYaw-Math.PI/4)/(2*Math.PI))*2*Math.PI;
+      this.trackingPitch = .44;
+    }
+    this.tracked = target;
+  }
   private readonly gaze = new T.Vector3();
   private aspect = 1;
   private height = 1;
@@ -56,11 +69,13 @@ export class ResortCameras {
   }
 
   rotate(turn: number) {
-    this.yaw += turn * Math.PI / 2;
+    if (this.tracked) this.trackingYaw += turn * Math.PI/2;
+    else this.yaw += turn * Math.PI / 2;
   }
 
   zoom(amount: number) {
-    this.span = clamp(this.span * Math.exp(amount), this.explore ? nearExploreSpan : 76, 1600);
+    if (this.tracked) this.trackingSpan = clamp(this.trackingSpan*Math.exp(amount),55,600);
+    else this.span = clamp(this.span * Math.exp(amount), this.explore ? nearExploreSpan : 76, 1600);
   }
 
   setDragging(active: boolean) {
@@ -69,8 +84,13 @@ export class ResortCameras {
 
   drag(dx: number, dy: number, pan: boolean) {
     if (this.explore && !pan) {
-      this.yaw -= dx * .007;
-      this.pitch = clamp(this.pitch + dy * .006, EXPLORE_PITCH.min, EXPLORE_PITCH.max);
+      if (this.tracked) {
+        this.trackingYaw -= dx*.007;
+        this.trackingPitch = clamp(this.trackingPitch+dy*.006,EXPLORE_PITCH.min,EXPLORE_PITCH.max);
+      } else {
+        this.yaw -= dx * .007;
+        this.pitch = clamp(this.pitch + dy * .006, EXPLORE_PITCH.min, EXPLORE_PITCH.max);
+      }
       return;
     }
     const scale = this.fittedSpan(this.span) / this.height;
@@ -89,16 +109,17 @@ export class ResortCameras {
     this.blend = mix(this.blend, Number(this.explore), smooth);
     if (this.blend < .001) this.blend = 0;
     if (this.blend > .999) this.blend = 1;
-    this.shownSpan = approach(this.shownSpan, this.span, smooth);
+    this.shownSpan = approach(this.shownSpan, this.tracked ? this.trackingSpan : this.span, smooth);
     const ground = map.sample(this.focus.x, this.focus.z).elevation;
     const nearGround = 1 - T.MathUtils.smoothstep(this.shownSpan, 90, 380);
     const exploreHeight = mix(Math.max(105, ground + 25), ground + 12, nearGround);
     this.focus.y = mix(home.y, exploreHeight, this.blend);
-    if (this.shownFocus.distanceToSquared(this.focus) < .001) this.shownFocus.copy(this.focus);
-    else this.shownFocus.lerp(this.focus, inputSmooth);
+    const target = this.tracked ? this.trackedFocus.set(this.tracked.x,this.tracked.y+3,this.tracked.z) : this.focus;
+    if (this.shownFocus.distanceToSquared(target) < .001) this.shownFocus.copy(target);
+    else this.shownFocus.lerp(target, inputSmooth);
 
-    this.shownYaw = approach(this.shownYaw, this.yaw, inputSmooth);
-    this.shownPitch = approach(this.shownPitch, this.pitch, inputSmooth);
+    this.shownYaw = approach(this.shownYaw, this.tracked ? this.trackingYaw : this.yaw, inputSmooth);
+    this.shownPitch = approach(this.shownPitch, this.tracked ? this.trackingPitch : this.pitch, inputSmooth);
     const mobileBlend = clamp((this.aspect - .55) / .60, 0, 1);
     const span = this.fittedSpan(this.shownSpan) * mix(1, mix(.57, .78, mobileBlend), this.blend);
     const viewHeight = span / 2;

@@ -216,3 +216,19 @@ kbd { font: 700 10px var(--mono); color: var(--muted); display: grid; place-item
 .trail-panel-buttons { display: flex; gap: 4px; }
 .trail-compact #trail-metrics, .trail-compact #trail-links, .trail-compact #trail-grade-details,
 .trail-compact #trail-manager { display: none; }
+.guest-dock { position: fixed; left: 26px; bottom: 177px; z-index: 2; }
+#guest-toggle { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 12px; min-height: 42px; }
+#guest-toggle b { color: var(--accent); }
+#guest-panel { position: absolute; bottom: 49px; width: 238px; max-height: min(53dvh,440px); overflow: auto; }
+#guest-info { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 7px; }
+.guest-heading { display: flex; align-items: center; justify-content: space-between; }
+#guest-pace { color: inherit; background: #29474d; border: 1px solid var(--line); border-radius: 4px; }
+@media (max-width: 690px) {
+  .guest-dock { left: 12px; bottom: max(176px, calc(170px + env(safe-area-inset-bottom))); }
+  #guest-panel { width: min(43vw, 224px); max-height: 46dvh; }
+  #guest-panel .lift-content button { min-height: 40px; }
+}
+@media (max-height: 500px) and (min-width: 691px) { .guest-dock { bottom: 22px; } }
+@media (min-width: 691px) {
+  .trail-panel { max-height: calc(100dvh - 235px); overflow: auto; }
+}

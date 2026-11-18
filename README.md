@@ -1,8 +1,8 @@
 # Powder Empire
 
-**Mission 003 · Fresh Tracks**
+**Mission 004 · First Guests**
 
-A ski resort tycoon prototype on a seeded mountain. Survey Frostpeak, build fixed-grip chairlifts and plan connected ski trails. The browser runs the entire project with Three.js, TypeScript, and Vite.
+A ski resort tycoon prototype on a seeded mountain. Survey Frostpeak, build fixed-grip chairlifts, lay out ski trails, and watch guests use the resort. The browser runs the entire project with Three.js, TypeScript, and Vite.
 
 ## Run locally
 
@@ -67,3 +67,7 @@ Lift planning, simulation, save data and rendering are in `src/lifts/`. [Mission
 ## Draw a ski trail
 
 Open **Trails**, tap a start and downhill waypoints, then choose a width and review. Select a finished run on the snow or in the trail directory to manage it. [Fresh Tracks report and iPhone checklist](docs/MISSION-003.md)
+
+## Welcome guests
+
+Open an operating lift and connect its upper station to an open, skill-appropriate trail with a return to a lower terminal or the base. Open **Guests**, select a skier, and choose **Follow Guest**. [Mission 004 report and playtest checklist](docs/MISSION-004.md)

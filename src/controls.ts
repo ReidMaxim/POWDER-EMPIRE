@@ -2,7 +2,7 @@ import type { ResortCameras } from './cameras';
 
 export function bindControls(
   canvas: HTMLCanvasElement, cameras: ResortCameras, dialog: HTMLDialogElement,
-  inspect: (x: number, y: number) => void, switchMode: () => void
+  inspect: (x: number, y: number) => void, switchMode: () => void, onReset: () => void = () => {}
 ) {
   const pointers = new Map<number, { x: number; y: number }>();
   let click: { x: number; y: number } | undefined;
@@ -57,7 +57,7 @@ export function bindControls(
       case 'v': if (!event.repeat) switchMode(); break;
       case 'q': if (!event.repeat) cameras.rotate(-1); break;
       case 'e': if (!event.repeat) cameras.rotate(1); break;
-      case 'home': cameras.reset(); break;
+      case 'home': onReset(); cameras.reset(); break;
       case '+': case '=': cameras.zoom(-.18); break;
       case '-': cameras.zoom(.18); break;
       case 'arrowleft': cameras.drag(-25, 0, true); break;

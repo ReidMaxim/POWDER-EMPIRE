@@ -13,7 +13,7 @@ export function createUI(root: HTMLElement, preferences: Preferences, actions: A
   root.innerHTML = `
     <main class="world" aria-label="Interactive ski resort terrain"></main>
     <header class="topbar">
-      <div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i></span><div><h1>POWDER<span> EMPIRE</span></h1><p>MISSION 003 <b> / </b> FRESH TRACKS</p></div></div>
+      <div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i></span><div><h1>POWDER<span> EMPIRE</span></h1><p>MISSION 004 <b> / </b> FIRST GUESTS</p></div></div>
       <div class="status" aria-label="Resort status">
         <span class="prototype" title="Weather and date are prototype values"><i></i> PROTOTYPE</span>
         <div class="stat"><span>FUNDS</span><strong id="resort-funds" aria-live="polite">$250,000</strong></div>
@@ -72,13 +72,37 @@ export function createUI(root: HTMLElement, preferences: Preferences, actions: A
       </div>
     </aside>
     <div id="lift-notice" class="lift-notice panel" role="status" hidden></div>
+    <div class="guest-dock">
+      <button id="guest-toggle" class="panel" type="button" aria-expanded="false" aria-controls="guest-panel">Guests <b id="guest-population">0</b> ▴</button>
+      <section id="guest-panel" class="panel lift-panel" aria-label="Guests and resort activity" hidden>
+        <div class="lift-content">
+          <p id="guest-empty">No usable ski circuit. Open a lift and connect its upper station to a suitable downhill trail.</p>
+          <dl class="lift-stats">
+            <div><dt>Waiting</dt><dd id="guest-waiting">0</dd></div><div><dt>Riding</dt><dd id="guest-riding">0</dd></div>
+            <div><dt>Skiing</dt><dd id="guest-skiing">0</dd></div><div><dt>Completed runs</dt><dd id="guest-runs">0</dd></div>
+            <div><dt>Usable circuits</dt><dd id="guest-circuits">0</dd></div>
+            <div><dt><label for="guest-pace">Simulation speed</label></dt><dd><select id="guest-pace"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option></select></dd></div>
+          </dl>
+          <button id="guest-find" type="button" disabled>Find a guest</button>
+          <div id="guest-info" hidden>
+            <div class="guest-heading"><strong id="guest-name"></strong><button id="guest-close" type="button" aria-label="Clear guest selection">×</button></div>
+            <p><strong id="guest-activity"></strong> · <span id="guest-skill"></span></p><p id="guest-outlook"></p>
+            <dl class="lift-stats">
+              <div><dt>Lift</dt><dd id="guest-lift"></dd></div><div><dt>Trail</dt><dd id="guest-trail"></dd></div>
+              <div><dt>Runs</dt><dd id="guest-own-runs"></dd></div>
+            </dl>
+            <button id="guest-follow" class="lift-primary" type="button">Follow Guest</button>
+          </div>
+        </div>
+      </section>
+    </div>
     <section class="minimap panel" aria-label="Terrain overview">
       <div class="map-title"><span>TOPOGRAPHY</span><span>N ↑</span></div>
       <canvas id="topography" width="144" height="100" aria-label="Seeded elevation overview"></canvas>
       <div class="map-footer"><span>0</span><i></i><span>960 m</span></div>
     </section>
     <nav class="build panel" aria-label="Resort construction">
-      <div class="build-title"><span>RESORT TOOLS</span><small>FRESH TRACKS</small></div>
+      <div class="build-title"><span>RESORT TOOLS</span><small>FIRST GUESTS</small></div>
       <div class="build-buttons">
         <button type="button" id="lift-tool" aria-pressed="false"><span aria-hidden="true">♢</span>Lifts</button>
         <button type="button" id="trail-tool" aria-pressed="false"><span aria-hidden="true">⌇</span>Trails</button>
@@ -103,7 +127,7 @@ export function createUI(root: HTMLElement, preferences: Preferences, actions: A
       <p id="camera-hint">Drag to pan · Scroll to zoom</p>
     </section>
     <dialog class="panel settings-dialog">
-      <form method="dialog" class="dialog-title"><div><span class="eyebrow">FRESH TRACKS</span><h2>Settings</h2></div><button aria-label="Close settings" value="close">×</button></form>
+      <form method="dialog" class="dialog-title"><div><span class="eyebrow">FIRST GUESTS</span><h2>Settings</h2></div><button aria-label="Close settings" value="close">×</button></form>
       <form id="seed-form">
         <label for="seed">Terrain seed</label>
         <div class="seed-actions"><input id="seed" name="seed" maxlength="40" required><button type="submit">Generate</button></div>

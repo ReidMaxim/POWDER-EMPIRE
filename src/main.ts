@@ -14,6 +14,9 @@ import { sceneryMasks } from './trails/clearing';
 import { createTrailLayer } from './trails/render';
 import { bindTrailPanel, type TrailDraft } from './trails/panel';
 import { TRAIL } from './trails/route';
+import { createGuestSimulation } from './guests/simulation';
+import { createGuestLayer } from './guests/render';
+import { bindGuestPanel } from './guests/panel';
 import './style.css';
 
 const preferences = loadPreferences();
@@ -24,6 +27,7 @@ const storage = writableStorage();
 const saved = readResort(storage, preferences.seed);
 preferences.seed = saved.seed;
 const cameras = new ResortCameras();
+let clearGuestFollow = () => {};
 let changeTrailView = (_explore: boolean) => {};
 const switchMode = () => {
   cameras.switchMode();
@@ -36,7 +40,7 @@ const ui = createUI(root, preferences, {
   switchMode,
   rotate: turn => cameras.rotate(turn),
   zoom: amount => cameras.zoom(amount),
-  reset: () => cameras.reset(),
+  reset: () => { clearGuestFollow(); cameras.reset(); },
   preferences(next) {
     if (!updateSettings(next)) return false;
     savePreferences(next);
@@ -61,6 +65,10 @@ function start() {
   let map = generateTerrain(preferences.seed);
   let mountain = createMountain(map);
   let resort = createResort(map, saved);
+  let visitors = createGuestSimulation(map,resort);
+  const people = createGuestLayer(scene);
+  let selectedGuest: number | undefined;
+  let following = false, guestPace = 1, guestClock = 0;
   let construction = createConstruction(map, resort);
   let selected: number | undefined;
   const lifts = createLiftLayer(scene);
@@ -68,7 +76,10 @@ function start() {
   let trailDraft: TrailDraft | undefined;
   let selectedTrail: number | undefined;
   let availableTrees: GroundPoint[] = [];
-  changeTrailView = explore => { trails.mode(explore); dirty = true; };
+  changeTrailView = explore => {
+    if (!explore) clearGuestFollow();
+    trails.mode(explore); dirty = true;
+  };
   for (const trail of resort.trails.values()) trails.add(map, trail);
   for (const lift of resort.lifts.values()) lifts.add(map, lift);
   scene.add(mountain.group);
@@ -101,6 +112,7 @@ function start() {
     dirty = true;
   };
   const persist = () => {
+    visitors.refresh();
     if (writeResort(storage, resort.snapshot())) return true;
     liftPanel.notice('Storage is unavailable. Resort changes will last for this session only.');
     return false;
@@ -289,6 +301,37 @@ function start() {
       }
     }
   });
+  function updateGuests() {
+    const guest = selectedGuest === undefined ? undefined : visitors.guests.get(selectedGuest);
+    guestPanel.update(visitors,resort,guest,following);
+  }
+  clearGuestFollow = () => {
+    following = false;
+    cameras.track();
+    dirty = true;
+    updateGuests();
+  };
+  function selectGuest(id?:number) {
+    selectedGuest = id;
+    people.select(id);
+    clearGuestFollow();
+    if (id !== undefined) guestPanel.show();
+  }
+  const guestPanel = bindGuestPanel(root,{
+    find() {
+      const all = [...visitors.guests.keys()];
+      if (all.length) selectGuest(all[(all.indexOf(selectedGuest ?? -1)+1)%all.length]);
+    },
+    close: () => selectGuest(),
+    follow() {
+      const guest=visitors.guests.get(selectedGuest ?? -1);
+      if (following || !guest) {clearGuestFollow();return;}
+      if (!cameras.explore) switchMode();
+      following=true;cameras.track(guest);updateGuests();
+    },
+    pace(n) { if (n===1||n===2||n===4||n===8) guestPace=n; }
+  });
+  updateGuests();
   updateSettings = next => {
     if (map.seed !== next.seed) {
       const newSave = beginNewResort(resort, next.seed, () =>
@@ -303,6 +346,9 @@ function start() {
       mountain.dispose();
       map = generateTerrain(newSave.seed);
       resort = createResort(map, newSave);
+      visitors = createGuestSimulation(map,resort);
+      selectGuest();
+      people.update(visitors.guests.values(),guestClock);
       construction = createConstruction(map, resort);
       selected = undefined;
       persist();
@@ -315,6 +361,7 @@ function start() {
       ui.inspect();
       updateLiftPanel();
     }
+    visitors.setLimit(next.quality==='low'?20:next.quality==='high'?32:24);
     renderQuality = next.quality;
     mountain.quality(next);
     cameras.reducedMotion = next.reducedMotion;
@@ -338,6 +385,12 @@ function start() {
       if (hit) construction.place({ x: hit.point.x, z: hit.point.z });
       else construction.miss();
       updateLiftPanel();
+      return;
+    }
+    const guestHit = people.pick(visitors.guests.values(),view,x-rect.left,y-rect.top,
+      rect.width,rect.height,ray.ray,hit?.distance ?? Infinity);
+    if (guestHit) {
+      selectGuest(guestHit.id);
       return;
     }
     const liftHit = ray.intersectObjects(lifts.pickables, false)[0];
@@ -371,7 +424,7 @@ function start() {
     marker.position.copy(hit.point).add(new T.Vector3(0, 2, 0));
     const point = hit.point;
     ui.inspect({ ...map.sample(point.x, point.z), x: point.x, z: point.z });
-  }, switchMode);
+  }, switchMode, clearGuestFollow);
   canvas.addEventListener('webglcontextlost', event => {
     event.preventDefault();
     ui.error('The graphics context was interrupted. Waiting for the browser to restore it.');
@@ -380,16 +433,27 @@ function start() {
     ui.error('');
     dirty = true;
   });
-  let last = performance.now();
+  let last = performance.now(), accumulator=0, lastStats=0;
+  document.addEventListener('visibilitychange',()=>{last=performance.now();accumulator=0;});
   renderer.setAnimationLoop(time => {
     const dt = Math.max(0, (time - last) / 1000);
     last = time;
     if (context.isContextLost()) return;
-    view = cameras.update(Math.min(.1, dt), map);
-    if (resort.advance(dt)) {
-      lifts.animate(resort.lifts.values());
-      dirty = true;
+    accumulator += Math.min(.2, dt)*guestPace;
+    const hadGuests = visitors.guests.size > 0;
+    let advanced=false;
+    while(accumulator>=1/30){
+      accumulator-=1/30;guestClock+=1/30;
+      visitors.advance(1/30);advanced=true;
     }
+    if(advanced) {
+      if(selectedGuest!==undefined&&!visitors.guests.has(selectedGuest))selectGuest();
+      people.update(visitors.guests.values(),guestClock);
+      lifts.animate(resort.lifts.values());
+      dirty ||= hadGuests || visitors.guests.size>0 || [...resort.lifts.values()].some(lift=>lift.running);
+    }
+    if(time-lastStats>250){updateGuests();lastStats=time;}
+    view = cameras.update(Math.min(.1, dt), map);
     if (!dirty && previousPose.equals(view.matrixWorld) && previousProjection.equals(view.projectionMatrix)) return;
     previousPose.copy(view.matrixWorld);
     previousProjection.copy(view.projectionMatrix);
