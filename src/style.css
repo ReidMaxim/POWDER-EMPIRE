@@ -191,3 +191,28 @@ kbd { font: 700 10px var(--mono); color: var(--muted); display: grid; place-item
   .lift-actions button { padding-inline: 3px; font-size: 10px; }
   #lift-tool { min-height: 44px; }
 }
+#trail-tool { border-color: #83bfa975; color: #dff4e9; }
+#trail-tool[aria-pressed="true"] { background: #b0d9bc; color: var(--ink); }
+#trail-tool[aria-pressed="true"] span { color: var(--ink); }
+#trail-registry, .trail-width select, #trail-name {
+  background: #29474d; color: #eff7f4; border: 1px solid var(--line);
+  border-radius: 5px; padding: 4px 7px; min-height: 32px;
+}
+#trail-registry { display: block; width: 100%; margin-top: 5px; font-size: 11px; }
+.trail-width, #trail-rename, .trail-status-row { display: flex; align-items: center; gap: 6px; }
+.trail-width { justify-content: space-between; margin-bottom: 5px; }
+.trail-width select { max-width: 77%; font-size: 11px; }
+.trail-status-row { margin-top: 6px; }
+#trail-difficulty { border-radius: 4px; padding: 3px 7px; color: white; font-weight: 700;
+  background: color-mix(in srgb, var(--trail-color) 78%, #122e37); text-transform: capitalize; }
+#trail-name { min-width: 0; flex: 1; }
+#trail-metrics:empty, #trail-links:empty { display: none; }
+#trail-links { color: #c8e6db; }
+@media (max-width: 690px) {
+  .trail-panel { width: min(56vw, 240px); max-height: calc(100dvh - 260px); }
+  .trail-width select, #trail-registry { min-height: 39px; }
+  #trail-tool { min-height: 44px; }
+}
+.trail-panel-buttons { display: flex; gap: 4px; }
+.trail-compact #trail-metrics, .trail-compact #trail-links, .trail-compact #trail-grade-details,
+.trail-compact #trail-manager { display: none; }

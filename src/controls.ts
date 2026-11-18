@@ -52,7 +52,7 @@ export function bindControls(
     cameras.zoom(Math.max(-.5, Math.min(.5, event.deltaY * units * .0013)));
   }, { passive: false });
   window.addEventListener('keydown', event => {
-    if (dialog.open || event.target instanceof HTMLSelectElement || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (dialog.open || (event.target instanceof HTMLSelectElement || event.target instanceof HTMLInputElement) || event.altKey || event.ctrlKey || event.metaKey) return;
     switch (event.key.toLowerCase()) {
       case 'v': if (!event.repeat) switchMode(); break;
       case 'q': if (!event.repeat) cameras.rotate(-1); break;

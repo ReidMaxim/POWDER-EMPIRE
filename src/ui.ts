@@ -13,7 +13,7 @@ export function createUI(root: HTMLElement, preferences: Preferences, actions: A
   root.innerHTML = `
     <main class="world" aria-label="Interactive ski resort terrain"></main>
     <header class="topbar">
-      <div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i></span><div><h1>POWDER<span> EMPIRE</span></h1><p>MISSION 002 <b> / </b> FIRST CHAIR</p></div></div>
+      <div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i></span><div><h1>POWDER<span> EMPIRE</span></h1><p>MISSION 003 <b> / </b> FRESH TRACKS</p></div></div>
       <div class="status" aria-label="Resort status">
         <span class="prototype" title="Weather and date are prototype values"><i></i> PROTOTYPE</span>
         <div class="stat"><span>FUNDS</span><strong id="resort-funds" aria-live="polite">$250,000</strong></div>
@@ -51,6 +51,26 @@ export function createUI(root: HTMLElement, preferences: Preferences, actions: A
         <div class="lift-actions"><button type="button" id="lift-toggle" class="lift-primary">Stop lift</button><button type="button" id="lift-demolish">Demolish</button></div>
       </div>
     </aside>
+    <aside class="inspector panel lift-panel trail-panel" id="trail-panel" aria-labelledby="trail-title" hidden>
+      <div class="panel-title"><div><span class="eyebrow">SKI TRAIL</span><h2 id="trail-title"></h2></div><div class="trail-panel-buttons"><button type="button" id="trail-collapse" aria-label="Toggle trail details" aria-expanded="true">−</button><button type="button" id="trail-close" aria-label="Close trail panel">×</button></div></div>
+      <div class="lift-content">
+        <div id="trail-editor">
+          <strong id="trail-step"></strong>
+          <p id="trail-feedback" role="status"></p>
+          <label class="trail-width">Width <select id="trail-width"><option value="12">12 m · Narrow</option><option value="20">20 m · Standard</option><option value="30">30 m · Wide</option></select></label>
+          <button type="button" id="trail-suggest" class="lift-survey"></button>
+          <details class="lift-limits"><summary>Placement and preview</summary><p id="trail-limits"></p></details>
+        </div>
+        <div class="trail-status-row"><span id="trail-difficulty" hidden></span><strong id="trail-status"></strong></div>
+        <dl class="lift-stats" id="trail-metrics"></dl>
+        <p id="trail-links"></p><details class="lift-limits" id="trail-grade-details" hidden><summary>Grade distribution</summary><p id="trail-grades"></p></details>
+        <div id="trail-manager" hidden>
+          <form id="trail-rename"><input id="trail-name" aria-label="Trail name" maxlength="50" required><button type="submit">Rename</button></form>
+          <div class="lift-actions"><button type="button" id="trail-toggle" class="lift-primary">Close trail</button><button type="button" id="trail-demolish">Demolish</button></div>
+        </div>
+        <div class="lift-actions" id="trail-draft-actions"><button type="button" id="trail-undo">Undo</button><button type="button" id="trail-cancel">Cancel</button><button type="button" id="trail-review" class="lift-primary">Review</button><button type="button" id="trail-confirm" class="lift-primary" hidden>Confirm</button></div>
+      </div>
+    </aside>
     <div id="lift-notice" class="lift-notice panel" role="status" hidden></div>
     <section class="minimap panel" aria-label="Terrain overview">
       <div class="map-title"><span>TOPOGRAPHY</span><span>N ↑</span></div>
@@ -58,12 +78,13 @@ export function createUI(root: HTMLElement, preferences: Preferences, actions: A
       <div class="map-footer"><span>0</span><i></i><span>960 m</span></div>
     </section>
     <nav class="build panel" aria-label="Resort construction">
-      <div class="build-title"><span>RESORT TOOLS</span><small>FIRST CHAIR</small></div>
+      <div class="build-title"><span>RESORT TOOLS</span><small>FRESH TRACKS</small></div>
       <div class="build-buttons">
         <button type="button" id="lift-tool" aria-pressed="false"><span aria-hidden="true">♢</span>Lifts</button>
-        <button disabled><span aria-hidden="true">⌇</span>Trails</button>
+        <button type="button" id="trail-tool" aria-pressed="false"><span aria-hidden="true">⌇</span>Trails</button>
         <button disabled><span aria-hidden="true">⌂</span>Lodges</button>
       </div>
+      <select id="trail-registry" aria-label="Inspect a built trail" hidden></select>
       <select id="lift-registry" aria-label="Inspect a built lift" hidden></select>
     </nav>
     <section class="camera-controls panel" aria-label="Camera controls">
@@ -82,7 +103,7 @@ export function createUI(root: HTMLElement, preferences: Preferences, actions: A
       <p id="camera-hint">Drag to pan · Scroll to zoom</p>
     </section>
     <dialog class="panel settings-dialog">
-      <form method="dialog" class="dialog-title"><div><span class="eyebrow">FIRST CHAIR</span><h2>Settings</h2></div><button aria-label="Close settings" value="close">×</button></form>
+      <form method="dialog" class="dialog-title"><div><span class="eyebrow">FRESH TRACKS</span><h2>Settings</h2></div><button aria-label="Close settings" value="close">×</button></form>
       <form id="seed-form">
         <label for="seed">Terrain seed</label>
         <div class="seed-actions"><input id="seed" name="seed" maxlength="40" required><button type="submit">Generate</button></div>

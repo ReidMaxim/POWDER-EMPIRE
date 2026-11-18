@@ -1,3 +1,4 @@
+import type { GroundPoint } from './lifts/alignment';
 import * as T from 'three';
 import { HALF, randomStream, type Heightmap } from './terrain';
 import type { Preferences } from './preferences';
@@ -85,6 +86,7 @@ function scatter(map: Heightmap) {
   const random = randomStream(map.seed + '/forest');
   const matrix = new T.Object3D();
   const tint = new T.Color();
+  const forestPoints: GroundPoint[] = [];
   let count = 0;
   for (let i = 0; i < 13000 && count < maxTrees; i++) {
     const x = (random() - .5) * 922, z = (random() - .5) * 922;
@@ -104,6 +106,7 @@ function scatter(map: Heightmap) {
       trees[layer].setMatrixAt(count, matrix.matrix);
       trees[layer].setColorAt(count, tint.copy(palette[layer]).multiplyScalar(.80 + cover * .62));
     });
+    forestPoints.push({ x, z });
     count++;
   }
   trees.forEach(tree => { tree.count = count; group.add(tree); });
@@ -125,14 +128,16 @@ function scatter(map: Heightmap) {
   const scattered = [...trees, rocks].map(mesh => ({ mesh, original: mesh.instanceMatrix.array.slice(), count: mesh.count }));
   return {
     group,
-    clearScenery(shouldClear: (x: number, z: number) => boolean) {
+    forestPoints,
+    clearScenery(treeMask: (point: GroundPoint) => boolean, rockMask = treeMask) {
+      const hiddenTrees = forestPoints.map(treeMask);
       // Keep the seeded buffers intact so demolished corridors recover their scenery.
       for (const { mesh, original, count } of scattered) {
         const target = mesh.instanceMatrix.array;
         target.set(original);
         for (let index = 0; index < count; index++) {
           const offset = index * 16;
-          if (!shouldClear(original[offset + 12], original[offset + 14])) continue;
+          if (!(mesh === rocks ? rockMask({ x: original[offset + 12], z: original[offset + 14] }) : hiddenTrees[index])) continue;
           target.fill(0, offset, offset + 15);
           target[offset] = target[offset + 5] = target[offset + 10] = .001;
           target[offset + 13] = -110;
@@ -204,7 +209,7 @@ export function createMountain(map: Heightmap) {
   const group = new T.Group();
   group.add(surface, sides, forest.group);
   return {
-    group, surface, quality: forest.quality, clearScenery: forest.clearScenery,
+    group, surface, quality: forest.quality, clearScenery: forest.clearScenery, forestPoints: forest.forestPoints,
     dispose() {
       group.removeFromParent();
       const materials = new Set<T.Material>();

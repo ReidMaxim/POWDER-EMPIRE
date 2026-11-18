@@ -195,6 +195,9 @@ export function createLiftLayer(scene: T.Scene) {
     select(id?: number) {
       for (const [key, visual] of visuals) visual.markers.forEach(marker => { marker.visible = key === id; });
     },
+    highlight(ids: number[]) {
+      for (const id of ids) visuals.get(id)?.markers.forEach(marker => { marker.visible = true; });
+    },
     animate(lifts: Iterable<OperatingLift>) {
       for (const lift of lifts) {
         const visual = visuals.get(lift.id);

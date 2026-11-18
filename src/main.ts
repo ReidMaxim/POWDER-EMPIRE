@@ -5,11 +5,15 @@ import { createEnvironment, createMountain } from './environment';
 import { loadPreferences, savePreferences, type Preferences } from './preferences';
 import { generateTerrain } from './terrain';
 import { createUI } from './ui';
-import { distanceToRun, FIXED_GRIP } from './lifts/alignment';
+import type { GroundPoint } from './lifts/alignment';
 import { createConstruction } from './lifts/construction';
 import { bindLiftPanel } from './lifts/panel';
 import { createLiftLayer } from './lifts/render';
 import { beginNewResort, createResort, readResort, writeResort } from './lifts/resort';
+import { sceneryMasks } from './trails/clearing';
+import { createTrailLayer } from './trails/render';
+import { bindTrailPanel, type TrailDraft } from './trails/panel';
+import { TRAIL } from './trails/route';
 import './style.css';
 
 const preferences = loadPreferences();
@@ -20,9 +24,11 @@ const storage = writableStorage();
 const saved = readResort(storage, preferences.seed);
 preferences.seed = saved.seed;
 const cameras = new ResortCameras();
+let changeTrailView = (_explore: boolean) => {};
 const switchMode = () => {
   cameras.switchMode();
   ui.mode(cameras.explore);
+  changeTrailView(cameras.explore);
 };
 let updateSettings = (_next: Preferences) => true;
 const root = document.querySelector<HTMLElement>('#app')!;
@@ -58,6 +64,12 @@ function start() {
   let construction = createConstruction(map, resort);
   let selected: number | undefined;
   const lifts = createLiftLayer(scene);
+  const trails = createTrailLayer(scene);
+  let trailDraft: TrailDraft | undefined;
+  let selectedTrail: number | undefined;
+  let availableTrees: GroundPoint[] = [];
+  changeTrailView = explore => { trails.mode(explore); dirty = true; };
+  for (const trail of resort.trails.values()) trails.add(map, trail);
   for (const lift of resort.lifts.values()) lifts.add(map, lift);
   scene.add(mountain.group);
   ui.terrain(map);
@@ -94,24 +106,43 @@ function start() {
     return false;
   };
   const clearScenery = () => {
-    const plans = [...resort.lifts.values()].map(lift => lift.alignment);
-    mountain.clearScenery((x, z) => plans.some(plan =>
-      Math.hypot(x - plan.lower.x, z - plan.lower.z) < FIXED_GRIP.stationRadius + 3 ||
-      Math.hypot(x - plan.upper.x, z - plan.upper.z) < FIXED_GRIP.stationRadius + 3 ||
-      distanceToRun({ x, z }, plan.lower, plan.upper) < FIXED_GRIP.turnRadius + 5
-    ));
+    const mask = sceneryMasks([...resort.lifts.values()].map(lift => lift.alignment),
+      [...resort.trails.values()].map(trail => trail.route));
+    mountain.clearScenery(mask.tree, mask.rock);
+    availableTrees = mountain.forestPoints.filter(point => !mask.tree(point));
   };
+  function refreshTrailDraft() {
+    if (trailDraft) trailDraft.plan = resort.proposeTrail(trailDraft.points, trailDraft.width, availableTrees);
+    trails.draft(map, trailDraft?.points ?? [], trailDraft?.plan);
+    updateLiftPanel();
+  }
+  function placeTrailPoint(point: GroundPoint) {
+    if (!trailDraft || trailDraft.reviewing) return;
+    if (trailDraft.points.length >= TRAIL.maxPoints) trailDraft.message = 'Use at most 32 waypoints.';
+    else {
+      trailDraft.points.push(point);
+      trailDraft.message = undefined;
+    }
+    refreshTrailDraft();
+  }
   function updateLiftPanel() {
     const draft = construction.draft;
     lifts.preview(map, draft?.lower ?? draft?.invalidLower, draft?.upper, draft?.proposal.alignment, !draft?.proposal.issues.length);
-    lifts.select(selected);
+    const chosen = selectedTrail === undefined ? undefined : resort.trails.get(selectedTrail);
+    lifts.select(chosen ? undefined : selected);
+    lifts.highlight(chosen ? [...chosen.connections.reachableUpperLiftIds, ...chosen.connections.reachableLowerLiftIds] : []);
+    trails.select(selectedTrail);
     liftPanel.update(draft, selected === undefined ? undefined : resort.lifts.get(selected), resort.nextName);
     liftPanel.budget(resort.funds, resort.lifts.values(), selected);
+    trailPanel.update(trailDraft, chosen, resort);
     dirty = true;
   }
   const liftPanel = bindLiftPanel(root, {
     start() {
       if (construction.draft) return;
+      trailDraft = undefined;
+      selectedTrail = undefined;
+      trails.draft(map, []);
       selected = undefined;
       marker.visible = false;
       ui.inspect();
@@ -162,6 +193,9 @@ function start() {
     },
     select(id) {
       if (id && !resort.lifts.has(id)) return;
+      trailDraft = undefined;
+      selectedTrail = undefined;
+      trails.draft(map, []);
       construction.cancel();
       selected = id || undefined;
       marker.visible = false;
@@ -169,13 +203,103 @@ function start() {
       updateLiftPanel();
     }
   });
+  const trailPanel = bindTrailPanel(root, {
+    start() {
+      if (trailDraft) return;
+      construction.cancel();
+      selected = selectedTrail = undefined;
+      marker.visible = false;
+      ui.inspect();
+      trailDraft = { points: [], width: 20, reviewing: false };
+      refreshTrailDraft();
+    },
+    close() {
+      trailDraft = undefined;
+      selectedTrail = undefined;
+      refreshTrailDraft();
+    },
+    width(width) {
+      if (!trailDraft) return;
+      trailDraft.width = width;
+      refreshTrailDraft();
+    },
+    undo() {
+      if (!trailDraft) return;
+      if (trailDraft.reviewing) trailDraft.reviewing = false;
+      else trailDraft.points.pop();
+      trailDraft.message = undefined;
+      refreshTrailDraft();
+    },
+    review() {
+      if (!trailDraft?.plan?.route || trailDraft.plan.issues.length) return;
+      trailDraft.reviewing = true;
+      updateLiftPanel();
+    },
+    suggested() {
+      if (!trailDraft) return;
+      const towardBase = !!trailDraft.points.length;
+      const firstLift = resort.lifts.values().next().value;
+      const upper = firstLift?.alignment.upper ?? map.sites.upper;
+      const lower = firstLift?.alignment.lower ?? map.sites.base;
+      const from = towardBase ? lower : upper, to = towardBase ? upper : lower;
+      const length = Math.hypot(to.x - from.x, to.z - from.z);
+      const side = firstLift ? 24 * (towardBase ? -1 : 1) : 0;
+      placeTrailPoint({x: from.x + ((to.x - from.x) * 29 + (to.z - from.z) * side) / length,
+        z: from.z + ((to.z - from.z) * 29 - (to.x - from.x) * side) / length});
+    },
+    confirm() {
+      if (!trailDraft?.reviewing) return;
+      const trail = resort.constructTrail(trailDraft.points, trailDraft.width, availableTrees);
+      if (!trail) { refreshTrailDraft(); return; }
+      trailDraft = undefined;
+      selectedTrail = trail.id;
+      trails.add(map, trail);
+      clearScenery();
+      persist();
+      refreshTrailDraft();
+    },
+    select(id) {
+      if (id && !resort.trails.has(id)) return;
+      construction.cancel();
+      selected = undefined;
+      selectedTrail = id || undefined;
+      trailDraft = undefined;
+      marker.visible = false;
+      ui.inspect();
+      refreshTrailDraft();
+    },
+    rename(name) {
+      if (selectedTrail !== undefined && resort.renameTrail(selectedTrail, name)) persist();
+      updateLiftPanel();
+    },
+    toggle() {
+      if (selectedTrail !== undefined && resort.toggleTrail(selectedTrail)) persist();
+      updateLiftPanel();
+    },
+    demolish() {
+      if (selectedTrail === undefined) return;
+      const trail = resort.trails.get(selectedTrail);
+      if (!trail || !window.confirm(`Demolish ${trail.name}? Construction costs are unrecoverable.`)) return;
+      if (resort.demolishTrail(trail.id)) {
+        trails.remove(trail.id);
+        selectedTrail = undefined;
+        clearScenery();
+        persist();
+        updateLiftPanel();
+      }
+    }
+  });
   updateSettings = next => {
     if (map.seed !== next.seed) {
       const newSave = beginNewResort(resort, next.seed, () =>
-        window.confirm('Start a new resort on this seed? This clears all lifts and resets funds to $250,000.')
+        window.confirm('Start a new resort on this seed? This clears all lifts and trails and resets funds to $250,000.')
       );
       if (!newSave) return false;
       for (const id of resort.lifts.keys()) lifts.remove(id);
+      for (const id of resort.trails.keys()) trails.remove(id);
+      trailDraft = undefined;
+      selectedTrail = undefined;
+      trails.draft(map, []);
       mountain.dispose();
       map = generateTerrain(newSave.seed);
       resort = createResort(map, newSave);
@@ -183,6 +307,7 @@ function start() {
       selected = undefined;
       persist();
       mountain = createMountain(map);
+      clearScenery();
       scene.add(mountain.group);
       cameras.reset();
       marker.visible = false;
@@ -205,6 +330,10 @@ function start() {
     pointer.set((x - rect.left) / rect.width * 2 - 1, 1 - (y - rect.top) / rect.height * 2);
     ray.setFromCamera(pointer, view);
     const hit = ray.intersectObject(mountain.surface)[0];
+    if (trailDraft) {
+      if (hit) placeTrailPoint({ x: hit.point.x, z: hit.point.z });
+      return;
+    }
     if (construction.draft) {
       if (hit) construction.place({ x: hit.point.x, z: hit.point.z });
       else construction.miss();
@@ -215,12 +344,22 @@ function start() {
     if (liftHit && (!hit || liftHit.distance < hit.distance)) {
       marker.visible = false;
       ui.inspect();
+      selectedTrail = undefined;
       selected = liftHit.object.userData.liftId as number;
       updateLiftPanel();
       return;
     }
-    if (selected !== undefined) {
+    const trailHit = hit && [...resort.trails.values()].reverse().find(trail => trail.route.contains(hit.point));
+    if (trailHit) {
       selected = undefined;
+      selectedTrail = trailHit.id;
+      marker.visible = false;
+      ui.inspect();
+      updateLiftPanel();
+      return;
+    }
+    if (selected !== undefined || selectedTrail !== undefined) {
+      selected = selectedTrail = undefined;
       updateLiftPanel();
     }
     marker.visible = Boolean(hit);
