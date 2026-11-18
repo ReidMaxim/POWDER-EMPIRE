@@ -14,7 +14,7 @@ Frostpeak is a 960 × 960 m procedural alpine reserve with a 256 × 256 heightma
 | Chromium mobile emulation at 390 × 844 | Passed. Verified tap inspection, mode selection, visible HUD controls, and an overflow-free layout. |
 | Persistence and regeneration | Passed. A custom seed, low quality, hidden conifers, and reduced motion survived reload. Re-entering the original seed reproduced the same topography, and randomization produced a different one. |
 | Production assets under `/powder-empire/` | Passed locally. The browser smoke test reported zero console errors, failed requests, or HTTP errors. The Pages workflow verification script also fetched the expected HTML, script, stylesheet, and favicon from the local subpath. |
-| Public GitHub Pages | Pending. GitHub rejected repository creation for the connected integration. The workflow is included and checks the public URL and required assets after deployment. |
+| Public GitHub Pages | Source is on the public repository’s main branch. The workflow verifies the live URL and required assets after deployment. See the repository’s Actions tab for the current deployment status. |
 
 ## Screenshots
 
