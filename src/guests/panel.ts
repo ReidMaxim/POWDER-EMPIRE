@@ -29,6 +29,7 @@ export function bindGuestPanel(root:HTMLElement, actions:{find():void;close():vo
       el('guest-runs').textContent=String(data.runs);
       el('guest-circuits').textContent=String(data.circuits);
       el('guest-empty').hidden=!!data.circuits;
+      if (!data.circuits) el('guest-empty').textContent = data.circuitHint;
       (el('guest-find') as HTMLButtonElement).disabled=!data.guests;
       info.hidden=!g;
       if(!g)return;

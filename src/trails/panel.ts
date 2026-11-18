@@ -3,6 +3,7 @@ import type { createResort } from '../lifts/resort';
 import type { BuiltTrail, TrailConnections } from './network';
 import { TRAIL, type TrailRoute, type TrailWidth } from './route';
 import { trailColors } from './render';
+import type { ConnectionZone } from './anchors';
 
 export interface TrailDraft {
   points: GroundPoint[];
@@ -10,6 +11,9 @@ export interface TrailDraft {
   reviewing: boolean;
   plan?: ReturnType<ReturnType<typeof createResort>['proposeTrail']>;
   message?: string;
+  zones?: ConnectionZone[];
+  snap?: string;
+  snappedPoint?: GroundPoint;
 }
 interface Actions {
   start(): void; close(): void; undo(): void; review(): void; confirm(): void; suggested(): void;
@@ -30,7 +34,7 @@ function displayStats(route: TrailRoute, cost: number, draft: boolean) {
 function links(connection: TrailConnections, resort: ReturnType<typeof createResort>) {
   const lifts = (ids: number[]) => ids.map(id => resort.lifts.get(id)?.name).filter(Boolean).join(', ');
   return [
-    connection.state, lifts(connection.reachableUpperLiftIds) && 'Upper: ' + lifts(connection.reachableUpperLiftIds),
+    connection.state === 'Isolated' ? 'No endpoint links' : 'Endpoint links', lifts(connection.reachableUpperLiftIds) && 'Upper: ' + lifts(connection.reachableUpperLiftIds),
     lifts(connection.reachableLowerLiftIds) && 'Lower: ' + lifts(connection.reachableLowerLiftIds),
     connection.returnsToBase && 'Resort base',
     !connection.returnsToBase && !connection.reachableLowerLiftIds.length && 'No return to base or lift', connection.incomingTrailIds.length > 0 && `${connection.incomingTrailIds.length} incoming run(s)`,
@@ -83,7 +87,8 @@ export function bindTrailPanel(root: HTMLElement, actions: Actions) {
       const stage = draft ? draft.reviewing ? 'review' : 'draw' : chosen ? 'inspect' : '';
       if (stage !== mode) {
         mode = stage;
-        showDetails(!(stage === 'draw' && compactDefault.matches));
+        showDetails(!(compactDefault.matches && (stage === 'draw' || stage === 'inspect')));
+        get<HTMLDetailsElement>('trail-grade-details').open = false;
       }
       if (panel.hidden) return;
       terrain.hidden = true;
@@ -104,6 +109,11 @@ export function bindTrailPanel(root: HTMLElement, actions: Actions) {
         ? Object.entries(route.distribution).map(([band, distance]) => `${band} ${pct(distance / route.length * 100)}`).join(' · ') + ` · Raw maximum ${pct(route.rawMaximum)}`
         : '';
       get('trail-links').textContent = connection ? links(connection,resort) : '';
+      const status = chosen ? resort.circuitStatus(chosen) : draft?.plan?.circuit;
+      get('trail-circuit').textContent = status ?? '';
+      get('trail-circuit').dataset.usable = String(status?.startsWith('Usable circuit') ?? false);
+      get('trail-snap').textContent = draft?.snap ??
+        (draft?.zones?.length ? 'Teal: upper zone · Gold: lower zone · Tap near a marked anchor to snap.' : '');
       if (draft) {
         width.value = String(draft.width);
         get('trail-step').textContent = draft.reviewing ? 'Review construction' : draft.points.length ? `Draw route · ${draft.points.length} point(s)` : 'Place the high start point';

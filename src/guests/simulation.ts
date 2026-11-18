@@ -1,19 +1,19 @@
 import { chairDistance, FIXED_GRIP, sampleLoop, wrapDistance, type ChairPose, type GroundPoint, type Point3 } from '../lifts/alignment.ts';
 import type { createResort, OperatingLift } from '../lifts/resort.ts';
 import type { Heightmap } from '../terrain.ts';
-import { findCircuits, suits, walkable, type Circuit, type Skill } from './routing.ts';
+import { circuitStatus, findCircuits, lowerGate, queuePoint, suits, unloadFromEnd, unloadPoint, type Circuit, type Skill } from './routing.ts';
+import { pedestrianPath, transferBudget } from '../trails/transfer.ts';
 
 export type Activity = 'Arriving' | 'Queuing' | 'Boarding' | 'Riding' | 'Unloading' | 'To trail' | 'Skiing' | 'Returning' | 'Resting' | 'Leaving';
 export interface Guest extends Point3 {
   id: number; skill: Skill; activity: Activity; yaw: number; speed: number; lean: number;
   destination?: GroundPoint; circuit: Circuit; leg: number; distance: number; station: number;
+  path?: readonly GroundPoint[]; pathIndex: number;
   chair: number; seat: number; age: number; runs: number; origin: Point3; routeIndex: number;
 }
 type Resort = ReturnType<typeof createResort>;
 const pose: ChairPose = {x:0,y:0,z:0,yaw:0};
 const colors = [0,1,0,1,2,0,1,2,1,0];
-const lowerGate = 7, unloadFromEnd = 8;
-const platformOffset = 5.1;
 const boardingSeconds = .8;
 const walkSpeed = 4.6;
 const satHeight = 4.62;
@@ -39,13 +39,14 @@ export function createGuestSimulation(map: Heightmap, resort: Resort) {
   let circuits: Circuit[][] = [[],[],[]];
   let nextId = 1, arrival = 4.7, totalRuns = 0, circuitCount = 0;
   let limit = 24;
+  let circuitHint = '';
   const queue = (id:number) => {
     let line = queues.get(id);
     if (!line) queues.set(id,line=[]);
     return line;
   };
   const set = (g:Guest, activity:Activity, target?: GroundPoint) => {
-    g.activity=activity; g.age=0; g.destination=target; g.lean=0;
+    g.activity=activity; g.age=0; g.destination=target; g.path=undefined; g.pathIndex=0; g.lean=0;
   };
   function release(g:Guest) {
     const places=chairs.get(g.circuit.lift.id)?.[g.chair];
@@ -56,13 +57,21 @@ export function createGuestSimulation(map: Heightmap, resort: Resort) {
   function refresh() {
     circuits = [findCircuits(resort,map,0),findCircuits(resort,map,1),findCircuits(resort,map,2)];
     circuitCount = new Set(circuits.flat().map(c=>c.lift.id+':'+c.trails.map(t=>t.id).join('.'))).size;
+    if (!circuitCount) {
+      const trail = [...resort.trails.values()].find(t => t.open && t.connections.reachableUpperLiftIds.length)
+        ?? resort.trails.values().next().value;
+      circuitHint = trail ? circuitStatus(resort,map,trail) : 'Build a lift and a downhill run to create a guest circuit.';
+    }
   }
   refresh();
 
-  function queueTarget(g:Guest, index:number) {
-    const l=g.circuit.lift.alignment;
-    const offset=lowerGate-2-index*2.45, side=l.turnRadius+platformOffset;
-    return {x:l.lower.x+l.ux*offset-l.uz*side,z:l.lower.z+l.uz*offset+l.ux*side};
+  function transfer(g: Guest, activity: Activity, path: readonly GroundPoint[]) {
+    set(g,activity);
+    g.path = path;
+  }
+  function leave(g: Guest, path = pedestrianPath(map,g,base,transferBudget.base)) {
+    if (path) transfer(g,'Leaving',path);
+    else recover(g);
   }
   function arrive(): boolean {
     if (guests.size>=limit) return false;
@@ -72,9 +81,10 @@ export function createGuestSimulation(map: Heightmap, resort: Resort) {
     const options=circuits[available];
     const trip=options.reduce((a,b)=>queue(a.lift.id).length <= queue(b.lift.id).length ? a : b);
     if (queue(trip.lift.id).length>=12) return false;
-    const angle=nextId*2.4, x=base.x+Math.cos(angle)*5, z=base.z+Math.sin(angle)*5;
+    const {x,z}=base;
     const g:Guest={x,z,y:map.sample(x,z).elevation,id:nextId++,skill:available,activity:'Arriving',yaw:0,speed:0,lean:0,
-      circuit:trip,leg:0,distance:0,station:trip.lift.id,chair:-1,seat:0,age:0,runs:0,origin:{x,y:0,z},routeIndex:0};
+      circuit:trip,leg:0,distance:0,station:trip.lift.id,chair:-1,seat:0,age:0,runs:0,origin:{x,y:0,z},routeIndex:0,
+      path:trip.arrival,pathIndex:0};
     guests.set(g.id,g);
     return true;
   }
@@ -88,7 +98,12 @@ export function createGuestSimulation(map: Heightmap, resort: Resort) {
     const y=map.sample(g.x,g.z).elevation;
     g.y=settle ? Math.max(y,g.y-Math.max(4,(g.y-y)*3)*dt) : y;
     g.speed=d>.15 ? walkSpeed : 0;
-    return d<.22 && g.y-y<.14;
+    return d <= Math.max(.01, dt*walkSpeed) && g.y-y<.14;
+  }
+  function followPath(g: Guest, dt: number) {
+    const target = g.path?.[g.pathIndex];
+    if (target && walk(g,target,dt)) g.pathIndex++;
+    return g.pathIndex >= (g.path?.length ?? 0);
   }
   function recover(g:Guest) {
     release(g);
@@ -98,12 +113,13 @@ export function createGuestSimulation(map: Heightmap, resort: Resort) {
   function toTrail(g:Guest) {
     const trail=g.circuit.trails[g.leg];
     if (trail && g.circuit.trails.slice(g.leg).every(t=>resort.trails.has(t.id)&&suits(t,g.skill))) {
-      const start=trail.route.samples[0];
-      if (walkable(map,g,start)) {set(g,'To trail',start);return;}
+      transfer(g,'To trail',g.circuit.transfers[g.leg]);
+      return;
     }
     if (g.leg===0) {
-      const alternate=circuits[g.skill].find(route=>route.lift.id===g.circuit.lift.id && walkable(map,g,route.trails[0].route.samples[0]));
-      if(alternate){g.circuit=alternate;set(g,'To trail',alternate.trails[0].route.samples[0]);return;}
+      const alternate=circuits[g.skill].find(route=>route.lift.id===g.circuit.lift.id);
+      const path = alternate && pedestrianPath(map,g,alternate.trails[0].route.samples[0],transferBudget.terminal);
+      if (alternate && path) {g.circuit=alternate;transfer(g,'To trail',path);return;}
     }
     recover(g);
   }
@@ -129,7 +145,7 @@ export function createGuestSimulation(map: Heightmap, resort: Resort) {
       g.runs++;totalRuns++;
       g.leg++;
       if(g.leg<g.circuit.trails.length) toTrail(g);
-      else set(g,'Returning',g.circuit.exit);
+      else transfer(g,'Returning',g.circuit.returnPath);
     }
   }
   function updateGuest(g:Guest,dt:number) {
@@ -137,10 +153,9 @@ export function createGuestSimulation(map: Heightmap, resort: Resort) {
     const lift=resort.lifts.get(g.circuit.lift.id);
     switch(g.activity) {
       case 'Arriving': {
-        if (!lift?.running || !circuits[g.skill].some(c=>c.lift.id===lift.id)) {set(g,'Leaving',base);break;}
+        if (!lift?.running || !circuits[g.skill].some(c=>c.lift.id===lift.id)) {leave(g);break;}
         const line=queue(lift.id);
-        g.destination=queueTarget(g,Math.min(line.length,11));
-        if(walk(g,g.destination,dt) && line.length<12){line.push(g);set(g,'Queuing');}
+        if(followPath(g,dt) && line.length<12){line.push(g);set(g,'Queuing');}
         break;
       }
       case 'Queuing': {
@@ -148,9 +163,9 @@ export function createGuestSimulation(map: Heightmap, resort: Resort) {
         const index=line.indexOf(g);
         if(!lift?.running || !circuits[g.skill].some(c=>c.lift.id===lift.id)) {
           if(index>=0) line.splice(index,1);
-          set(g,'Leaving',base);
+          leave(g);
         } else if(index>=0) {
-          g.destination=queueTarget(g,index);
+          g.destination=queuePoint(g.circuit.lift.alignment,index);
           walk(g,g.destination,dt);
         }
         break;
@@ -175,7 +190,7 @@ export function createGuestSimulation(map: Heightmap, resort: Resort) {
         if(g.destination && walk(g,g.destination,dt,true)) toTrail(g);
         break;
       case 'To trail':
-        if(g.destination && walk(g,g.destination,dt)) {
+        if(followPath(g,dt)) {
           const trail=g.circuit.trails[g.leg];
           if(!resort.trails.has(trail.id)||!suits(trail,g.skill)) {toTrail(g);break;}
           g.distance=0;g.routeIndex=0;g.speed=2;set(g,'Skiing');
@@ -183,20 +198,23 @@ export function createGuestSimulation(map: Heightmap, resort: Resort) {
         break;
       case 'Skiing': ski(g,dt);break;
       case 'Returning':
-        if(g.destination && walk(g,g.destination,dt)) {
-          const route=circuits[g.skill].find(c=>c.lift.id===g.circuit.exitLift) ?? circuits[g.skill][0];
-          if(route && g.runs<4 && walkable(map,g,route.lift.alignment.lower)) {
-            g.circuit=route;g.station=route.lift.id;g.leg=0;set(g,'Arriving');
-          } else set(g,'Leaving',base);
+        if(followPath(g,dt)) {
+          const route = circuits[g.skill].find(c=>c.lift.id===g.circuit.exitLift) ??
+            (g.circuit.exitLift === undefined ? circuits[g.skill][0] : undefined);
+          if (route && g.runs < 4) {
+            const path = g.circuit.exitLift === undefined ? route.arrival : [];
+            g.circuit=route;g.station=route.lift.id;g.leg=0;transfer(g,'Arriving',path);
+          } else leave(g,g.circuit.departure);
         }
         break;
       case 'Leaving':
-        if(walk(g,base,dt,true)) guests.delete(g.id);
+        if(followPath(g,dt)) guests.delete(g.id);
         break;
       case 'Resting':
         g.speed=0;walk(g,g,dt,true);
         if(g.age>5) {
-          if(walkable(map,g,base)) set(g,'Leaving',base);
+          const home = pedestrianPath(map,g,base,transferBudget.base);
+          if(home) leave(g,home);
           else guests.delete(g.id);
         }
         break;
@@ -217,18 +235,17 @@ export function createGuestSimulation(map: Heightmap, resort: Resort) {
           liftSeat(lift,i,seat,pose);
           g.x=pose.x;g.y=pose.y;g.z=pose.z;g.yaw=pose.yaw;
           release(g);
-          const a=alignment.upper;
-          set(g,'Unloading',{x:a.x-alignment.uz*(alignment.turnRadius+platformOffset)+alignment.ux*3,
-            z:a.z+alignment.ux*(alignment.turnRadius+platformOffset)+alignment.uz*3});
+          set(g,'Unloading',unloadPoint(alignment));
         }
       }
       if(line?.length && crossesGate(previous,travel,lowerGate,alignment.loopLength)){
         for(let seat=0;seat<FIXED_GRIP.passengers;seat++){
           const g=line[0];if(!g || slots[seat])break;
-          const at=queueTarget(g,0);
+          const at=queuePoint(alignment);
           if(Math.hypot(g.x-at.x,g.z-at.z)>3.5)break;
-          const current=circuits[g.skill].find(route=>route.lift.id===lift.id);
-          if(!current){line.shift();set(g,'Leaving',base);continue;}
+          const available = circuits[g.skill].filter(route=>route.lift.id===lift.id);
+          const current = available[(g.id + g.runs - 1) % available.length];
+          if(!current){line.shift();leave(g);continue;}
           line.shift();slots[seat]=g;g.chair=i;g.seat=seat;g.circuit=current;g.leg=0;
           g.origin.x=g.x;g.origin.y=g.y;g.origin.z=g.z;
           set(g,'Boarding');
@@ -256,7 +273,7 @@ export function createGuestSimulation(map: Heightmap, resort: Resort) {
         if(g.activity==='Skiing')skiing++;
       }
       return {guests:guests.size,waiting,riding,skiing,runs:totalRuns,
-        circuits:circuitCount};
+        circuits:circuitCount, circuitHint};
     }
   };
 }

@@ -14,6 +14,7 @@ import { sceneryMasks } from './trails/clearing';
 import { createTrailLayer } from './trails/render';
 import { bindTrailPanel, type TrailDraft } from './trails/panel';
 import { TRAIL } from './trails/route';
+import { connectionZones, snapEndpoint } from './trails/anchors';
 import { createGuestSimulation } from './guests/simulation';
 import { createGuestLayer } from './guests/render';
 import { bindGuestPanel } from './guests/panel';
@@ -126,15 +127,21 @@ function start() {
     availableTrees = mountain.forestPoints.filter(point => !mask.tree(point));
   };
   function refreshTrailDraft() {
-    if (trailDraft) trailDraft.plan = resort.proposeTrail(trailDraft.points, trailDraft.width, availableTrees);
-    trails.draft(map, trailDraft?.points ?? [], trailDraft?.plan);
+    if (trailDraft) {
+      trailDraft.plan = resort.proposeTrail(trailDraft.points, trailDraft.width, availableTrees);
+      trailDraft.zones = connectionZones(map,resort.lifts.values(),trailDraft.width);
+    }
+    trails.draft(map, trailDraft?.points ?? [], trailDraft?.plan, trailDraft?.zones, trailDraft?.snappedPoint);
     updateLiftPanel();
   }
-  function placeTrailPoint(point: GroundPoint) {
+  function placeTrailPoint(point: GroundPoint, allowSnap = true) {
     if (!trailDraft || trailDraft.reviewing) return;
     if (trailDraft.points.length >= TRAIL.maxPoints) trailDraft.message = 'Use at most 32 waypoints.';
     else {
-      trailDraft.points.push(point);
+      const match = allowSnap && snapEndpoint(point,trailDraft.zones ?? [],trailDraft.points.length ? 'Lower' : 'Upper');
+      trailDraft.points.push(match ? match.point : point);
+      trailDraft.snap = match ? match.zone.end + ' anchor snapped · ' + match.zone.label : undefined;
+      trailDraft.snappedPoint = match ? match.point : undefined;
       trailDraft.message = undefined;
     }
     refreshTrailDraft();
@@ -242,7 +249,7 @@ function start() {
     undo() {
       if (!trailDraft) return;
       if (trailDraft.reviewing) trailDraft.reviewing = false;
-      else trailDraft.points.pop();
+      else { trailDraft.points.pop(); trailDraft.snap = undefined; trailDraft.snappedPoint = undefined; }
       trailDraft.message = undefined;
       refreshTrailDraft();
     },
@@ -254,7 +261,14 @@ function start() {
     suggested() {
       if (!trailDraft) return;
       const towardBase = !!trailDraft.points.length;
-      const firstLift = resort.lifts.values().next().value;
+      const end = towardBase ? 'Lower' : 'Upper';
+      const previous = trailDraft.points[0];
+      const upperZone = previous && [...(trailDraft.zones ?? [])].filter(z=>z.end==='Upper')
+        .sort((a,b)=>Math.hypot(a.center.x-previous.x,a.center.z-previous.z)-Math.hypot(b.center.x-previous.x,b.center.z-previous.z))[0];
+      const firstLift = [...resort.lifts.values()].find(l=>l.name===upperZone?.label) ?? resort.lifts.values().next().value;
+      const anchors = trailDraft.zones?.find(z=>z.end===end && z.label===firstLift?.name)?.anchors;
+      const anchor = anchors?.[0];
+      if (anchor) { placeTrailPoint(anchor); return; }
       const upper = firstLift?.alignment.upper ?? map.sites.upper;
       const lower = firstLift?.alignment.lower ?? map.sites.base;
       const from = towardBase ? lower : upper, to = towardBase ? upper : lower;

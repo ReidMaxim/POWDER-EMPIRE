@@ -13,7 +13,7 @@ export function createUI(root: HTMLElement, preferences: Preferences, actions: A
   root.innerHTML = `
     <main class="world" aria-label="Interactive ski resort terrain"></main>
     <header class="topbar">
-      <div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i></span><div><h1>POWDER<span> EMPIRE</span></h1><p>MISSION 004.5 <b> / </b> MOUNTAIN EVOLUTION</p></div></div>
+      <div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i></span><div><h1>POWDER<span> EMPIRE</span></h1><p>MISSION 004.5.1 <b> / </b> CONNECTION RESCUE</p></div></div>
       <div class="status" aria-label="Resort status">
         <span class="prototype" title="Weather and date are prototype values"><i></i> PROTOTYPE</span>
         <div class="stat"><span>FUNDS</span><strong id="resort-funds" aria-live="polite">$250,000</strong></div>
@@ -63,8 +63,12 @@ export function createUI(root: HTMLElement, preferences: Preferences, actions: A
           <details class="lift-limits"><summary>Placement and preview</summary><p id="trail-limits"></p></details>
         </div>
         <div class="trail-status-row"><span id="trail-difficulty" hidden></span><strong id="trail-status"></strong></div>
-        <dl class="lift-stats" id="trail-metrics"></dl>
-        <p id="trail-links"></p><details class="lift-limits" id="trail-grade-details" hidden><summary>Grade distribution</summary><p id="trail-grades"></p></details>
+        <p id="trail-circuit" role="status"></p>
+        <p id="trail-snap" role="status"></p>
+        <p id="trail-links"></p>
+        <details class="lift-limits" id="trail-grade-details" hidden><summary>Trail measurements</summary>
+          <dl class="lift-stats" id="trail-metrics"></dl><p id="trail-grades"></p>
+        </details>
         <div id="trail-manager" hidden>
           <form id="trail-rename"><input id="trail-name" aria-label="Trail name" maxlength="50" required><button type="submit">Rename</button></form>
           <div class="lift-actions"><button type="button" id="trail-toggle" class="lift-primary">Close trail</button><button type="button" id="trail-demolish">Demolish</button></div>

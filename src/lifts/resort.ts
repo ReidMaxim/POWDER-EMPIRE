@@ -1,3 +1,4 @@
+import { circuitStatus } from '../guests/routing.ts';
 import { isTerrainVersion, type Heightmap, type TerrainVersion } from '../terrain.ts';
 import { FIXED_GRIP, planLift, wrapDistance, type GroundPoint, type LiftAlignment } from './alignment.ts';
 
@@ -121,7 +122,17 @@ export function createResort(map: Heightmap, save: ResortSave) {
     const proposal = planTrail(map, points, width, terminals(), forest);
     if (proposal.route && proposal.route.cost > funds) proposal.issues.push('Insufficient resort funds.');
     const connections = proposal.route ? analyzeConnections(directConnections(map, 0, proposal.route, terminals(), trails.values()), trails) : undefined;
-    return { ...proposal, connections };
+    let circuit: string | undefined;
+    if (proposal.route && connections && !proposal.issues.length) {
+      const route = proposal.route;
+      const draft: BuiltTrail = {id:nextTrailId,name:'Proposed trail',points:[...points],width,
+        difficulty:route.difficulty,cost:route.cost,open:true,route,connections};
+      const graph = new Map(trails).set(draft.id,draft);
+      for (const [id,trail] of trails) graph.set(id,{...trail,
+        connections:directConnections(map,id,trail.route,terminals(),graph.values())});
+      circuit = circuitStatus({lifts,trails:graph},map,draft);
+    }
+    return { ...proposal, connections, circuit };
   }
 
   return {
@@ -129,6 +140,7 @@ export function createResort(map: Heightmap, save: ResortSave) {
     trails,
     get nextTrailName() { return `Trail ${String(nextTrailId).padStart(2, '0')}`; },
     proposeTrail,
+    circuitStatus(trail: BuiltTrail) { return circuitStatus({lifts,trails},map,trail); },
     constructTrail(points: readonly GroundPoint[], width: TrailWidth, forest: readonly GroundPoint[]) {
       const proposal = proposeTrail(points, width, forest);
       const { route, connections } = proposal;

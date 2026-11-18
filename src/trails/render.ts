@@ -2,6 +2,7 @@ import * as T from 'three';
 import type { Heightmap } from '../terrain';
 import type { GroundPoint } from '../lifts/alignment';
 import type { BuiltTrail } from './network';
+import type { ConnectionZone } from './anchors';
 import { conformSurface } from './conform';
 import type { TrailPlan, TrailRoute } from './route';
 
@@ -11,6 +12,7 @@ const snow = new T.MeshStandardMaterial({ vertexColors: true, side: T.DoubleSide
 const preview = new T.MeshBasicMaterial({ vertexColors: true, side: T.DoubleSide, transparent: true, opacity: .56, depthWrite: false });
 const flag = new T.MeshStandardMaterial({ vertexColors: true, side: T.DoubleSide });
 const dots = new T.PointsMaterial({color: '#f5a864', size: 5, sizeAttenuation: false, depthTest: false });
+const anchorDots = new T.PointsMaterial({color: '#ffda81', size: 9, sizeAttenuation: false, depthWrite: false});
 const groomed = new T.Color('#d4e7ef'), edge = new T.Color('#9fbdcc');
 const green = new T.Color('#329762'), red = new T.Color('#e26e3f');
 
@@ -140,11 +142,26 @@ export function createTrailLayer(scene: T.Scene) {
     },
     mode(explore: boolean) { exploring = explore; visibility(); },
     select(id?: number) { selected = id; visibility(); },
-    draft(map: Heightmap, points: readonly GroundPoint[], plan?: TrailPlan) {
+    draft(map: Heightmap, points: readonly GroundPoint[], plan?: TrailPlan,
+      zones: readonly ConnectionZone[] = [], snapped?: GroundPoint) {
       if (ghost) free(ghost);
       ghost = undefined;
-      if (!points.length) return;
+      if (!points.length && !zones.length) return;
       ghost = new T.Group();
+      const pins: number[] = [];
+      for (const zone of zones) {
+        const ring: number[] = [];
+        for (let i = 0; i <= 64; i++) {
+          const angle = i * Math.PI / 32;
+          const x = zone.center.x + Math.cos(angle)*zone.radius, z = zone.center.z + Math.sin(angle)*zone.radius;
+          ring.push(x,map.sample(x,z).elevation+2,z);
+        }
+        const color = !zone.anchors.length ? '#ba745d' : zone.end === 'Upper' ? '#39baae' : '#f6b767';
+        ghost.add(new T.Line(positions(ring),new T.LineBasicMaterial({color,transparent:true,opacity:.85,depthWrite:false})));
+        for (const p of zone.anchors) pins.push(p.x,map.sample(p.x,p.z).elevation+3,p.z);
+      }
+      if (pins.length) ghost.add(new T.Points(positions(pins),anchorDots));
+      if (!points.length) { scene.add(ghost); return; }
       const route = plan?.route;
       if (route) {
         ghost.add(ribbon(map, route, true, Boolean(plan?.issues.length)));
@@ -152,7 +169,7 @@ export function createTrailLayer(scene: T.Scene) {
       }
       const data: number[] = [];
       for (const p of [...points, ...(plan?.trees ?? [])]) data.push(p.x, map.sample(p.x,p.z).elevation + 3.6, p.z);
-      const start = points[0];
+      const start = snapped ?? points[0];
       const marker = new T.Mesh(new T.RingGeometry(4.7,6.4,24), flag);
       const colors = new Float32Array(marker.geometry.getAttribute('position').count * 3);
       for (let i = 0; i < colors.length; i += 3) green.toArray(colors,i);

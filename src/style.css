@@ -234,3 +234,8 @@ kbd { font: 700 10px var(--mono); color: var(--muted); display: grid; place-item
 }
 #lift-site-field { display: flex; align-items:center; justify-content: space-between; gap:5px; margin: 4px 0 6px; }
 #lift-site { color:inherit; background:#29474d; border:1px solid var(--line); border-radius:4px; max-width:60%; padding:4px; }
+
+#trail-circuit:empty, #trail-snap:empty { display: none; }
+#trail-circuit { color: #ffd19d; font-weight: 700; }
+#trail-circuit[data-usable="true"] { color: #a3e4c6; }
+#trail-snap { color: #d3e4e4; }
