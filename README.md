@@ -1,8 +1,8 @@
 # Powder Empire
 
-**Mission 001 · First Snow**
+**Mission 002 · First Chair**
 
-A standalone browser prototype for surveying a procedural ski resort. Explore Frostpeak, compare slope grades, and regenerate the mountain from a seed. The browser runs the entire project with Three.js, TypeScript, and Vite.
+A ski resort tycoon prototype on a seeded mountain. Survey Frostpeak, build fixed-grip chairlifts, and watch them operate. The browser runs the entire project with Three.js, TypeScript, and Vite.
 
 ## Run locally
 
@@ -41,7 +41,7 @@ Settings persist the terrain seed, render quality, conifer visibility, and reduc
 
 ## Deploy to GitHub Pages
 
-Push this project as the root of a standalone repository on `main`. In **Settings → Pages**, set **Source** to **GitHub Actions**. Run **Deploy Powder Empire** from the Actions tab if the initial push happened before Pages was configured. The job runs the terrain tests and build, publishes `dist`, and reports the public URL in the `github-pages` environment. Vite uses relative asset paths so both project subpaths and root domains work.
+Push this project as the root of a standalone repository on `main`. In **Settings → Pages**, set **Source** to **GitHub Actions**. Run **Deploy Powder Empire** from the Actions tab if the initial push happened before Pages was configured. The job runs the automated tests and build, publishes `dist`, and reports the public URL in the `github-pages` environment. Vite uses relative asset paths so both project subpaths and root domains work.
 
 Once the job succeeds, open its Pages URL in a fresh browser session, check both camera modes and terrain inspection, and confirm the browser can load the production assets. [Verification and screenshots](docs/MISSION-001.md)
 
@@ -54,6 +54,12 @@ Once the job succeeds, open its Pages URL in a fresh browser session, check both
 - `src/preferences.ts` loads and saves browser settings.
 - `src/main.ts` wires the modules into the renderer and performs terrain raycasts.
 
-Build tools and tycoon values are placeholders for later missions.
+## Build your first lift
+
+Select **Lifts**, then pick a lower and an upper point on the snow. You can also use the two surveyed-bench buttons. Review the alignment and price, then select **Confirm**. Tap a terminal or choose a lift from the tools menu to inspect, start, stop, or demolish it.
+
+The resort starts with $250,000. Construction spends funds once. Demolition gives no refund. The budget and lifts persist locally with the terrain seed. Changing the seed after construction requires confirming a new resort.
+
+Lift planning, simulation, save data and rendering are in `src/lifts/`. [Mission 002 report and playtest checklist](docs/MISSION-002.md)
 
 [Mission 001.5 terrain and camera notes](docs/MISSION-001-5.md)

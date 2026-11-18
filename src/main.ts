@@ -5,23 +5,36 @@ import { createEnvironment, createMountain } from './environment';
 import { loadPreferences, savePreferences, type Preferences } from './preferences';
 import { generateTerrain } from './terrain';
 import { createUI } from './ui';
+import { distanceToRun, FIXED_GRIP } from './lifts/alignment';
+import { createConstruction } from './lifts/construction';
+import { bindLiftPanel } from './lifts/panel';
+import { createLiftLayer } from './lifts/render';
+import { beginNewResort, createResort, readResort, writeResort } from './lifts/resort';
 import './style.css';
 
 const preferences = loadPreferences();
+function writableStorage() {
+  try { return window.localStorage; } catch { return undefined; }
+}
+const storage = writableStorage();
+const saved = readResort(storage, preferences.seed);
+preferences.seed = saved.seed;
 const cameras = new ResortCameras();
 const switchMode = () => {
   cameras.switchMode();
   ui.mode(cameras.explore);
 };
-let updateSettings = (_next: Preferences) => {};
-const ui = createUI(document.querySelector<HTMLElement>('#app')!, preferences, {
+let updateSettings = (_next: Preferences) => true;
+const root = document.querySelector<HTMLElement>('#app')!;
+const ui = createUI(root, preferences, {
   switchMode,
   rotate: turn => cameras.rotate(turn),
   zoom: amount => cameras.zoom(amount),
   reset: () => cameras.reset(),
   preferences(next) {
+    if (!updateSettings(next)) return false;
     savePreferences(next);
-    updateSettings(next);
+    return true;
   }
 });
 
@@ -41,6 +54,11 @@ function start() {
   const fog = createEnvironment(scene);
   let map = generateTerrain(preferences.seed);
   let mountain = createMountain(map);
+  let resort = createResort(map, saved);
+  let construction = createConstruction(map, resort);
+  let selected: number | undefined;
+  const lifts = createLiftLayer(scene);
+  for (const lift of resort.lifts.values()) lifts.add(map, lift);
   scene.add(mountain.group);
   ui.terrain(map);
 
@@ -59,31 +77,127 @@ function start() {
   const ray = new T.Raycaster();
   let view = cameras.update(1, map);
   let dirty = true;
+  let renderQuality = preferences.quality;
   const previousPose = new T.Matrix4();
   const previousProjection = new T.Matrix4();
   const resize = () => {
     const { clientWidth: width, clientHeight: height } = ui.world;
     if (!width || !height) return;
-    renderer.setPixelRatio(Math.min(devicePixelRatio, { low: 1, standard: 1.5, high: 2 }[preferences.quality]));
+    renderer.setPixelRatio(Math.min(devicePixelRatio, { low: 1, standard: 1.5, high: 2 }[renderQuality]));
     renderer.setSize(width, height, false);
     cameras.resize(width, height);
     dirty = true;
   };
+  const persist = () => {
+    if (writeResort(storage, resort.snapshot())) return true;
+    liftPanel.notice('Storage is unavailable. Resort changes will last for this session only.');
+    return false;
+  };
+  const clearScenery = () => {
+    const plans = [...resort.lifts.values()].map(lift => lift.alignment);
+    mountain.clearScenery((x, z) => plans.some(plan =>
+      Math.hypot(x - plan.lower.x, z - plan.lower.z) < FIXED_GRIP.stationRadius + 3 ||
+      Math.hypot(x - plan.upper.x, z - plan.upper.z) < FIXED_GRIP.stationRadius + 3 ||
+      distanceToRun({ x, z }, plan.lower, plan.upper) < FIXED_GRIP.turnRadius + 5
+    ));
+  };
+  function updateLiftPanel() {
+    const draft = construction.draft;
+    lifts.preview(map, draft?.lower ?? draft?.invalidLower, draft?.upper, draft?.proposal.alignment, !draft?.proposal.issues.length);
+    lifts.select(selected);
+    liftPanel.update(draft, selected === undefined ? undefined : resort.lifts.get(selected), resort.nextName);
+    liftPanel.budget(resort.funds, resort.lifts.values(), selected);
+    dirty = true;
+  }
+  const liftPanel = bindLiftPanel(root, {
+    start() {
+      if (construction.draft) return;
+      selected = undefined;
+      marker.visible = false;
+      ui.inspect();
+      construction.start();
+      updateLiftPanel();
+    },
+    cancel() {
+      construction.cancel();
+      selected = undefined;
+      updateLiftPanel();
+    },
+    back() {
+      construction.back();
+      updateLiftPanel();
+    },
+    surveyed() {
+      if (!construction.draft) return;
+      construction.place(construction.draft.lower ? map.sites.upper : map.sites.base);
+      updateLiftPanel();
+    },
+    confirm() {
+      const lift = construction.confirm();
+      if (lift) {
+        lifts.add(map, lift);
+        clearScenery();
+        selected = lift.id;
+        persist();
+      }
+      updateLiftPanel();
+    },
+    toggle() {
+      if (selected === undefined) return;
+      resort.toggle(selected);
+      persist();
+      updateLiftPanel();
+    },
+    demolish() {
+      if (selected === undefined) return;
+      const lift = resort.lifts.get(selected);
+      if (!lift || !window.confirm(`Demolish ${lift.name}? Construction costs are unrecoverable.`)) return;
+      if (resort.demolish(selected)) {
+        lifts.remove(selected);
+        clearScenery();
+        selected = undefined;
+        persist();
+        updateLiftPanel();
+      }
+    },
+    select(id) {
+      if (id && !resort.lifts.has(id)) return;
+      construction.cancel();
+      selected = id || undefined;
+      marker.visible = false;
+      ui.inspect();
+      updateLiftPanel();
+    }
+  });
   updateSettings = next => {
     if (map.seed !== next.seed) {
+      const newSave = beginNewResort(resort, next.seed, () =>
+        window.confirm('Start a new resort on this seed? This clears all lifts and resets funds to $250,000.')
+      );
+      if (!newSave) return false;
+      for (const id of resort.lifts.keys()) lifts.remove(id);
       mountain.dispose();
-      map = generateTerrain(next.seed);
+      map = generateTerrain(newSave.seed);
+      resort = createResort(map, newSave);
+      construction = createConstruction(map, resort);
+      selected = undefined;
+      persist();
       mountain = createMountain(map);
       scene.add(mountain.group);
       cameras.reset();
       marker.visible = false;
       ui.terrain(map);
       ui.inspect();
+      updateLiftPanel();
     }
+    renderQuality = next.quality;
     mountain.quality(next);
     cameras.reducedMotion = next.reducedMotion;
     resize();
+    return true;
   };
+  clearScenery();
+  updateLiftPanel();
   updateSettings(preferences);
   new ResizeObserver(resize).observe(ui.world);
   bindControls(canvas, cameras, ui.dialog, (x, y) => {
@@ -91,6 +205,24 @@ function start() {
     pointer.set((x - rect.left) / rect.width * 2 - 1, 1 - (y - rect.top) / rect.height * 2);
     ray.setFromCamera(pointer, view);
     const hit = ray.intersectObject(mountain.surface)[0];
+    if (construction.draft) {
+      if (hit) construction.place({ x: hit.point.x, z: hit.point.z });
+      else construction.miss();
+      updateLiftPanel();
+      return;
+    }
+    const liftHit = ray.intersectObjects(lifts.pickables, false)[0];
+    if (liftHit && (!hit || liftHit.distance < hit.distance)) {
+      marker.visible = false;
+      ui.inspect();
+      selected = liftHit.object.userData.liftId as number;
+      updateLiftPanel();
+      return;
+    }
+    if (selected !== undefined) {
+      selected = undefined;
+      updateLiftPanel();
+    }
     marker.visible = Boolean(hit);
     dirty = true;
     if (!hit) {
@@ -111,10 +243,14 @@ function start() {
   });
   let last = performance.now();
   renderer.setAnimationLoop(time => {
-    const dt = Math.min(.1, Math.max(0, (time - last) / 1000));
+    const dt = Math.max(0, (time - last) / 1000);
     last = time;
     if (context.isContextLost()) return;
-    view = cameras.update(dt, map);
+    view = cameras.update(Math.min(.1, dt), map);
+    if (resort.advance(dt)) {
+      lifts.animate(resort.lifts.values());
+      dirty = true;
+    }
     if (!dirty && previousPose.equals(view.matrixWorld) && previousProjection.equals(view.projectionMatrix)) return;
     previousPose.copy(view.matrixWorld);
     previousProjection.copy(view.projectionMatrix);

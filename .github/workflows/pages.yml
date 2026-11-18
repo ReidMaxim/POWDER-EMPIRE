@@ -2,7 +2,7 @@ name: Deploy Powder Empire
 
 on:
   push:
-    branches: [main, mission-001-5-mountain-refinement]
+    branches: [main, mission-001-5-mountain-refinement, mission-002-first-chair]
   workflow_dispatch:
 
 permissions:

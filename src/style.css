@@ -153,3 +153,41 @@ kbd { font: 700 10px var(--mono); color: var(--muted); display: grid; place-item
   .topbar { min-height: 94px; }
   .location, .inspector { top: 103px; }
 }
+.lift-panel { width: 258px; }
+.lift-panel .panel-title { padding-block: 9px; }
+.lift-panel .panel-title button { font-size: 19px; }
+.lift-content { padding: 10px 12px 12px; font-size: 12px; }
+.lift-content p { color: var(--muted); margin: 5px 0 7px; line-height: 1.35; }
+.lift-content p[data-invalid="true"] { color: #ffa9ac; }
+.lift-content #lift-status { padding: 0 0 2px; font-weight: 750; }
+.lift-content #lift-status[data-running="true"] { color: #a7ead7; }
+.lift-content button, .lift-panel .panel-title button, #lift-registry {
+  min-height: 32px; background: #29474d; color: #eff7f4; border: 1px solid var(--line); border-radius: 5px;
+  padding: 3px 8px; font-weight: 700;
+}
+.lift-content button:disabled { opacity: .55; }
+.lift-content .lift-primary, #lift-tool[aria-pressed="true"] { background: var(--accent); color: var(--ink); }
+#lift-tool { border-color: #eab27b77; color: #fff0db; }
+#lift-tool[aria-pressed="true"] span { color: var(--ink); }
+#lift-tool:not([aria-pressed="true"]) span { color: var(--accent); }
+.lift-actions { display: flex; gap: 5px; margin-top: 7px; }
+.lift-actions button { flex: 1; font-size: 11px; }
+.lift-survey { width: 100%; font-size: 11px; }
+.lift-limits { margin-top: 7px; color: var(--muted); font-size: 10px; }
+.lift-limits summary { cursor: pointer; }
+.lift-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 7px 0; }
+.lift-stats div { padding: 5px 6px; background: #29474d78; border-radius: 4px; }
+.lift-stats dt { font-size: 9px; color: var(--muted); }
+.lift-stats dd { margin: 2px 0 0; font-weight: 750; }
+#lift-registry { width: 100%; margin-top: 5px; font-size: 11px; }
+.lift-notice { position: fixed; bottom: 125px; left: 50%; transform: translateX(-50%); max-width: 85vw; padding: 6px 10px; font-size: 12px; }
+[hidden] { display: none !important; }
+
+@media (max-width: 690px) {
+  .lift-panel { width: min(52vw, 218px); max-height: calc(100dvh - 225px); overflow: auto; }
+  .lift-panel .panel-title { padding: 5px 8px; }
+  .lift-content { padding: 7px 8px; font-size: 11px; }
+  .lift-content button, #lift-registry { min-height: 42px; }
+  .lift-actions button { padding-inline: 3px; font-size: 10px; }
+  #lift-tool { min-height: 44px; }
+}

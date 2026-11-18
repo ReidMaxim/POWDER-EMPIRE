@@ -6,17 +6,17 @@ type Actions = {
   rotate(turn: number): void;
   zoom(amount: number): void;
   reset(): void;
-  preferences(next: Preferences): void;
+  preferences(next: Preferences): boolean;
 };
 
 export function createUI(root: HTMLElement, preferences: Preferences, actions: Actions) {
   root.innerHTML = `
     <main class="world" aria-label="Interactive ski resort terrain"></main>
     <header class="topbar">
-      <div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i></span><div><h1>POWDER<span> EMPIRE</span></h1><p>MISSION 001 <b> / </b> FIRST SNOW</p></div></div>
-      <div class="status" aria-label="Prototype UI">
-        <span class="prototype"><i></i> PROTOTYPE UI</span>
-        <div class="stat"><span>FUNDS</span><strong>$250,000</strong></div>
+      <div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i></span><div><h1>POWDER<span> EMPIRE</span></h1><p>MISSION 002 <b> / </b> FIRST CHAIR</p></div></div>
+      <div class="status" aria-label="Resort status">
+        <span class="prototype" title="Weather and date are prototype values"><i></i> PROTOTYPE</span>
+        <div class="stat"><span>FUNDS</span><strong id="resort-funds" aria-live="polite">$250,000</strong></div>
         <div class="stat weather"><span>WEATHER</span><strong>❄ &nbsp;−6 °C</strong></div>
         <div class="stat"><span>RESORT DATE</span><strong>Dec 01 <small>· Day 1</small></strong></div>
       </div>
@@ -27,7 +27,7 @@ export function createUI(root: HTMLElement, preferences: Preferences, actions: A
       <h2>Frostpeak</h2>
       <p>SEED <strong id="seed-label"></strong></p>
     </section>
-    <aside class="inspector panel" aria-labelledby="inspect-title">
+    <aside class="inspector panel" id="terrain-panel" aria-labelledby="inspect-title">
       <div class="panel-title"><div><span class="eyebrow">SURVEY TOOL</span><h2 id="inspect-title">Terrain inspector</h2></div><span class="reticle" aria-hidden="true">⌖</span></div>
       <div class="readings" aria-live="polite">
         <div><span>ALTITUDE</span><strong id="altitude">—</strong></div>
@@ -35,18 +35,36 @@ export function createUI(root: HTMLElement, preferences: Preferences, actions: A
       </div>
       <div class="survey-hint" id="survey-hint"><span>⌁</span> Select a point on the mountain</div>
     </aside>
+    <aside class="inspector panel lift-panel" id="lift-panel" aria-labelledby="lift-title" hidden>
+      <div class="panel-title"><div><span class="eyebrow" id="lift-detail"></span><h2 id="lift-title"></h2></div><button type="button" id="lift-dismiss" aria-label="Close lift panel">×</button></div>
+      <div id="lift-build" class="lift-content" hidden>
+        <strong id="lift-step"></strong>
+        <p id="lift-feedback" role="status"></p>
+        <button type="button" id="lift-surveyed" class="lift-survey"></button>
+        <dl id="lift-summary" class="lift-stats" hidden></dl>
+        <details class="lift-limits"><summary>Placement limits</summary><p id="lift-limits-text"></p></details>
+        <div class="lift-actions"><button type="button" id="lift-back">Back</button><button type="button" id="lift-cancel">Cancel</button><button type="button" id="lift-confirm" class="lift-primary">Confirm</button></div>
+      </div>
+      <div id="lift-manage" class="lift-content" hidden>
+        <p id="lift-status" role="status"></p>
+        <dl id="lift-stats" class="lift-stats"></dl>
+        <div class="lift-actions"><button type="button" id="lift-toggle" class="lift-primary">Stop lift</button><button type="button" id="lift-demolish">Demolish</button></div>
+      </div>
+    </aside>
+    <div id="lift-notice" class="lift-notice panel" role="status" hidden></div>
     <section class="minimap panel" aria-label="Terrain overview">
       <div class="map-title"><span>TOPOGRAPHY</span><span>N ↑</span></div>
       <canvas id="topography" width="144" height="100" aria-label="Seeded elevation overview"></canvas>
       <div class="map-footer"><span>0</span><i></i><span>960 m</span></div>
     </section>
     <nav class="build panel" aria-label="Resort construction">
-      <div class="build-title"><span>RESORT TOOLS</span><small>COMING SOON</small></div>
+      <div class="build-title"><span>RESORT TOOLS</span><small>FIRST CHAIR</small></div>
       <div class="build-buttons">
-        <button disabled><span aria-hidden="true">♢</span>Lifts</button>
+        <button type="button" id="lift-tool" aria-pressed="false"><span aria-hidden="true">♢</span>Lifts</button>
         <button disabled><span aria-hidden="true">⌇</span>Trails</button>
         <button disabled><span aria-hidden="true">⌂</span>Lodges</button>
       </div>
+      <select id="lift-registry" aria-label="Inspect a built lift" hidden></select>
     </nav>
     <section class="camera-controls panel" aria-label="Camera controls">
       <div class="mode-row">
@@ -64,7 +82,7 @@ export function createUI(root: HTMLElement, preferences: Preferences, actions: A
       <p id="camera-hint">Drag to pan · Scroll to zoom</p>
     </section>
     <dialog class="panel settings-dialog">
-      <form method="dialog" class="dialog-title"><div><span class="eyebrow">FIRST SNOW</span><h2>Settings</h2></div><button aria-label="Close settings" value="close">×</button></form>
+      <form method="dialog" class="dialog-title"><div><span class="eyebrow">FIRST CHAIR</span><h2>Settings</h2></div><button aria-label="Close settings" value="close">×</button></form>
       <form id="seed-form">
         <label for="seed">Terrain seed</label>
         <div class="seed-actions"><input id="seed" name="seed" maxlength="40" required><button type="submit">Generate</button></div>
@@ -107,9 +125,9 @@ export function createUI(root: HTMLElement, preferences: Preferences, actions: A
     get('seed-label').textContent = preferences.seed;
   };
   const save = (next: Partial<Preferences>) => {
-    Object.assign(preferences, next);
+    const proposed = { ...preferences, ...next };
+    if (actions.preferences(proposed)) Object.assign(preferences, proposed);
     sync();
-    actions.preferences(preferences);
   };
   settingsButton.onclick = () => { sync(); dialog.showModal(); };
   get<HTMLFormElement>('seed-form').onsubmit = event => {

@@ -37,7 +37,9 @@ export function bindControls(
   });
   const finish = (event: PointerEvent) => {
     if (!pointers.delete(event.pointerId)) return;
-    if (click && event.type === 'pointerup') inspect(event.clientX, event.clientY);
+    if (click && event.type === 'pointerup' && Math.hypot(event.clientX - click.x, event.clientY - click.y) < 5) {
+      inspect(event.clientX, event.clientY);
+    }
     click = undefined;
     if (pointers.size) return;
     cameras.setDragging(false);
@@ -50,7 +52,7 @@ export function bindControls(
     cameras.zoom(Math.max(-.5, Math.min(.5, event.deltaY * units * .0013)));
   }, { passive: false });
   window.addEventListener('keydown', event => {
-    if (dialog.open || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (dialog.open || event.target instanceof HTMLSelectElement || event.altKey || event.ctrlKey || event.metaKey) return;
     switch (event.key.toLowerCase()) {
       case 'v': if (!event.repeat) switchMode(); break;
       case 'q': if (!event.repeat) cameras.rotate(-1); break;

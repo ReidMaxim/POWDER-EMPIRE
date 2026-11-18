@@ -122,8 +122,25 @@ function scatter(map: Heightmap) {
   }
   rocks.count = rockCount;
   group.add(rocks);
+  const scattered = [...trees, rocks].map(mesh => ({ mesh, original: mesh.instanceMatrix.array.slice(), count: mesh.count }));
   return {
     group,
+    clearScenery(shouldClear: (x: number, z: number) => boolean) {
+      // Keep the seeded buffers intact so demolished corridors recover their scenery.
+      for (const { mesh, original, count } of scattered) {
+        const target = mesh.instanceMatrix.array;
+        target.set(original);
+        for (let index = 0; index < count; index++) {
+          const offset = index * 16;
+          if (!shouldClear(original[offset + 12], original[offset + 14])) continue;
+          target.fill(0, offset, offset + 15);
+          target[offset] = target[offset + 5] = target[offset + 10] = .001;
+          target[offset + 13] = -110;
+        }
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.boundingSphere = null;
+      }
+    },
     quality(preferences: Preferences) {
       const ratio = { low: .30, standard: .68, high: 1 }[preferences.quality];
       trees.forEach(tree => {
@@ -187,7 +204,7 @@ export function createMountain(map: Heightmap) {
   const group = new T.Group();
   group.add(surface, sides, forest.group);
   return {
-    group, surface, quality: forest.quality,
+    group, surface, quality: forest.quality, clearScenery: forest.clearScenery,
     dispose() {
       group.removeFromParent();
       const materials = new Set<T.Material>();
