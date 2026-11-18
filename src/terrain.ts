@@ -9,11 +9,32 @@ export interface TerrainSample {
   grade: number;
 }
 
+export type SlopeBand = 'beginner' | 'intermediate' | 'advanced' | 'extreme';
+
+/** Prototype grade bands, independent of any future trail difficulty rating. */
+export function classifyGrade(grade: number): SlopeBand {
+  if (grade <= 25) return 'beginner';
+  if (grade <= 40) return 'intermediate';
+  if (grade <= 70) return 'advanced';
+  return 'extreme';
+}
+
+export interface StationSite {
+  readonly x: number;
+  readonly z: number;
+  readonly elevation: number;
+  readonly radius: number;
+  readonly maxGrade: number;
+}
+
 export interface Heightmap {
   readonly seed: string;
   readonly size: number;
   readonly span: number;
   readonly heights: Float32Array;
+  readonly sites: Readonly<{ base: StationSite; upper: StationSite }>;
+  /** Influence of the open eastern face, from zero at the forest to one in the clearing. */
+  openFace(x: number, z: number): number;
   sample(x: number, z: number): TerrainSample;
 }
 
@@ -49,6 +70,19 @@ export function generateTerrain(seed: string): Heightmap {
   const peakX = -.21 + rng() * .19, peakZ = -.40 + rng() * .21;
   const summit = 515 + rng() * 95;
   const ridgeAngle = .42 + rng() * .4;
+  const faceX = 165 + rng() * 32;
+  const faceDrift = 56 + rng() * 29;
+  const faceRise = 122 + rng() * 15;
+  const topZ = -135, baseZ = 333;
+  const baseHeight = 20 + rng() * 4;
+  const faceCenter = (z: number) => faceX + faceDrift * smooth(clamp((z - topZ) / (baseZ - topZ), 1));
+  const openFace = (x: number, z: number) => {
+    const across = 1 - smooth(clamp((Math.abs(x - faceCenter(z)) - 56) / 105, 1));
+    const along = smooth(clamp((z - topZ + 101) / 74, 1)) *
+      (1 - smooth(clamp((z - baseZ - 26) / 115, 1)));
+    return across * along;
+  };
+
   const heights = new Float32Array(GRID_SIZE * GRID_SIZE);
   for (let j = 0; j < GRID_SIZE; j++) {
     for (let i = 0; i < GRID_SIZE; i++) {
@@ -57,7 +91,7 @@ export function generateTerrain(seed: string): Heightmap {
       const dx = x - peakX + .095 * warp, dz = z - peakZ;
       const across = dx + dz * ridgeAngle;
       const main = Math.max(0, 1 - Math.hypot(across * 1.14, dz * .89));
-      const shoulder = Math.max(0, 1 - Math.hypot((x - .40 + .20 * (z + .25)) * 1.55, (z + .29) * 1.38));
+      const shoulder = Math.max(0, 1 - Math.hypot((x - .43 + .20 * (z + .51)) * 1.55, (z + .51) * 1.38));
       const spur = Math.max(0, 1 - Math.hypot((x + .49 - (z - .03) * .45) * 2.05, (z - .02) * 1.40));
       const mass = Math.max(Math.pow(main, 1.75) * summit, Math.pow(shoulder, 1.55) * summit * .68, Math.pow(spur, 1.42) * summit * .48);
       const apron = Math.max(0, 1 - Math.hypot((x + .36 - .35 * (z - .12)) * 1.85, (z - .12) * 1.18));
@@ -66,24 +100,58 @@ export function generateTerrain(seed: string): Heightmap {
       const base = 14 + noise(x * 3 + 3, z * 3 + 3) * 8;
       const basin = clamp((Math.hypot((x + .46) / .41, (z - .565) / .23) - .65) / .53, 1);
       const relief = base + Math.max(mass, apronHeight) + detail * clamp(mass / 120, 1);
-      heights[j * GRID_SIZE + i] = mix(12, relief, smooth(basin));
+      const worldX = x * HALF, worldZ = z * HALF;
+      const acrossFace = worldX - faceCenter(worldZ);
+      const run = clamp((worldZ - topZ - 25) / (baseZ - topZ - 59), 1);
+      // Integrate a constant-grade middle with shorter, rounded transitions to the benches.
+      const rounded = .13;
+      const descent = (run < rounded ? run ** 2 / (2 * rounded)
+        : run > 1 - rounded ? 1 - rounded - (1 - run) ** 2 / (2 * rounded)
+        : run - rounded / 2) / (1 - rounded);
+      const rolling = noise(x * 7 + 17, z * 7 + 17) * 3.0 *
+        smooth(clamp(Math.min(run, 1 - run) * 7, 1));
+      const crossfall = (1 - Math.cos(acrossFace / 43)) * 3.1;
+      const face = baseHeight + faceRise * (1 - descent) + rolling + crossfall;
+      const blend = openFace(worldX, worldZ);
+      const natural = mix(12, relief, smooth(basin));
+      heights[j * GRID_SIZE + i] = mix(natural, face, blend);
     }
   }
+  function sample(x: number, z: number): TerrainSample {
+    const u = clamp((x + HALF) / step, GRID_SIZE - 1);
+    const v = clamp((z + HALF) / step, GRID_SIZE - 1);
+    const i = Math.min(Math.floor(u), GRID_SIZE - 2);
+    const j = Math.min(Math.floor(v), GRID_SIZE - 2);
+    const offset = j * GRID_SIZE + i, a = u - i, b = v - j;
+    const nw = heights[offset], ne = heights[offset + 1];
+    const sw = heights[offset + GRID_SIZE], se = heights[offset + GRID_SIZE + 1];
+    const upper = a + b <= 1;
+    const dx = upper ? ne - nw : se - sw;
+    const dz = upper ? sw - nw : se - ne;
+    const elevation = upper ? nw + dx * a + dz * b : se + dx * (a - 1) + dz * (b - 1);
+    return { elevation, grade: Math.hypot(dx, dz) * 100 / step };
+  }
+
+  function station(x: number, z: number, radius: number): StationSite {
+    let maxGrade = 0;
+    // Sample both triangles of each grid cell that overlaps the footprint's bounding square.
+    const firstCell = (center: number) => Math.floor((center - radius + HALF) / step);
+    const lastCell = (center: number) => Math.floor((center + radius + HALF) / step);
+    for (let j = firstCell(z); j <= lastCell(z); j++) {
+      for (let i = firstCell(x); i <= lastCell(x); i++) {
+        maxGrade = Math.max(maxGrade,
+          sample((i + .25) * step - HALF, (j + .25) * step - HALF).grade,
+          sample((i + .75) * step - HALF, (j + .75) * step - HALF).grade);
+      }
+    }
+    return { x, z, radius, elevation: sample(x, z).elevation, maxGrade };
+  }
+
   return {
-    seed, size: GRID_SIZE, span: WORLD_SIZE, heights,
-    sample(x, z) {
-      const u = clamp((x + HALF) / step, GRID_SIZE - 1);
-      const v = clamp((z + HALF) / step, GRID_SIZE - 1);
-      const i = Math.min(Math.floor(u), GRID_SIZE - 2);
-      const j = Math.min(Math.floor(v), GRID_SIZE - 2);
-      const offset = j * GRID_SIZE + i, a = u - i, b = v - j;
-      const nw = heights[offset], ne = heights[offset + 1];
-      const sw = heights[offset + GRID_SIZE], se = heights[offset + GRID_SIZE + 1];
-      const upper = a + b <= 1;
-      const dx = upper ? ne - nw : se - sw;
-      const dz = upper ? sw - nw : se - ne;
-      const elevation = upper ? nw + dx * a + dz * b : se + dx * (a - 1) + dz * (b - 1);
-      return { elevation, grade: Math.hypot(dx, dz) * 100 / step };
+    seed, size: GRID_SIZE, span: WORLD_SIZE, heights, openFace, sample,
+    sites: {
+      base: station(faceCenter(baseZ), baseZ, 28),
+      upper: station(faceCenter(topZ), topZ, 21)
     }
   };
 }

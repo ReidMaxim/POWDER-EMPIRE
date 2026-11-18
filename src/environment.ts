@@ -71,6 +71,7 @@ function terrainSides(map: Heightmap) {
 function scatter(map: Heightmap) {
   const group = new T.Group();
   const maxTrees = 2200;
+  const stations = Object.values(map.sites);
   const treeGeometries = [
     new T.CylinderGeometry(.26, .42, 4.3, 5),
     new T.ConeGeometry(2.45, 5.9, 6),
@@ -91,7 +92,9 @@ function scatter(map: Heightmap) {
     const cover = random();
     const band = .48 + .25 * Math.sin(x * .030 + z * .015) + .22 * Math.cos(z * .032 - x * .013);
     const clearing = Math.hypot((x + 190) / 214, (z - 278) / 102);
-    if (grade > 82 || elevation > 285 || (clearing < 1.02 && cover > .015) || cover > band * .63) continue;
+    const face = map.openFace(x, z);
+    if (grade > 82 || elevation > 285 || (clearing < 1.02 && cover > .015) || cover > band * .63 * (1 - face * .985)) continue;
+    if (stations.some(site => Math.hypot(x - site.x, z - site.z) < site.radius + 4)) continue;
     const scale = .7 + random() ** 1.4 * 1.55;
     matrix.scale.setScalar(scale);
     matrix.rotation.set(0, random() * Math.PI, 0);
@@ -108,7 +111,7 @@ function scatter(map: Heightmap) {
   for (let i = 0; i < 2400 && rockCount < 220; i++) {
     const x = (random() - .5) * 920, z = (random() - .5) * 920;
     const { elevation, grade } = map.sample(x, z);
-    if (elevation < 55 || grade < 43) continue;
+    if (elevation < 55 || grade < 43 || map.openFace(x, z) > .86) continue;
     const size = 1 + random() ** 2 * 7;
     matrix.position.set(x, elevation + size * .19, z);
     matrix.rotation.set(random(), random() * 6.28, random());

@@ -1,5 +1,5 @@
 import * as T from 'three';
-import { HALF, type Heightmap } from './terrain';
+import { HALF, type Heightmap } from './terrain.ts';
 
 const clamp = T.MathUtils.clamp;
 const mix = T.MathUtils.lerp;
@@ -7,7 +7,11 @@ const approach = (value: number, target: number, t: number) => Math.abs(value - 
 const radians = T.MathUtils.degToRad;
 const isoPitch = Math.atan(1 / Math.sqrt(2));
 const initialYaw = -Math.PI / 4;
-const home = new T.Vector3(-16, 160, -32);
+const home = new T.Vector3(0, 147, -18);
+const overviewSpan = 1200;
+const nearExploreSpan = 38;
+const clearance = 6;
+export const EXPLORE_PITCH = Object.freeze({ min: -Math.PI / 3, max: 1.31 });
 
 export class ResortCameras {
   private readonly ortho = new T.OrthographicCamera(-1, 1, 1, -1, 1, 14500);
@@ -15,14 +19,15 @@ export class ResortCameras {
   private readonly focus = home.clone();
   private readonly shownFocus = home.clone();
   private readonly offset = new T.Vector3();
+  private readonly gaze = new T.Vector3();
   private aspect = 1;
   private height = 1;
   private yaw = initialYaw;
   private shownYaw = initialYaw;
   private pitch = isoPitch;
   private shownPitch = isoPitch;
-  private span = 1160;
-  private shownSpan = 1160;
+  private span = overviewSpan;
+  private shownSpan = overviewSpan;
   private blend = 0;
   private dragging = false;
   fogNear = 0;
@@ -37,14 +42,17 @@ export class ResortCameras {
   switchMode() {
     this.explore = !this.explore;
     this.pitch = this.explore ? .44 : isoPitch;
-    if (!this.explore) this.yaw = initialYaw + Math.round((this.yaw - initialYaw) / (Math.PI / 2)) * Math.PI / 2;
+    if (!this.explore) {
+      this.yaw = initialYaw + Math.round((this.yaw - initialYaw) / (Math.PI / 2)) * Math.PI / 2;
+      this.span = Math.max(76, this.span);
+    }
   }
 
   reset() {
     this.focus.copy(home);
     this.yaw = initialYaw + Math.round((this.shownYaw - initialYaw) / (2 * Math.PI)) * 2 * Math.PI;
     this.pitch = this.explore ? .44 : isoPitch;
-    this.span = 1160;
+    this.span = overviewSpan;
   }
 
   rotate(turn: number) {
@@ -52,7 +60,7 @@ export class ResortCameras {
   }
 
   zoom(amount: number) {
-    this.span = clamp(this.span * Math.exp(amount), 76, 1600);
+    this.span = clamp(this.span * Math.exp(amount), this.explore ? nearExploreSpan : 76, 1600);
   }
 
   setDragging(active: boolean) {
@@ -62,11 +70,11 @@ export class ResortCameras {
   drag(dx: number, dy: number, pan: boolean) {
     if (this.explore && !pan) {
       this.yaw -= dx * .007;
-      this.pitch = clamp(this.pitch + dy * .006, .14, 1.31);
+      this.pitch = clamp(this.pitch + dy * .006, EXPLORE_PITCH.min, EXPLORE_PITCH.max);
       return;
     }
     const scale = this.fittedSpan(this.span) / this.height;
-    const right = dx * scale, forward = dy * scale / Math.max(.2, Math.sin(this.shownPitch));
+    const right = dx * scale, forward = dy * scale / Math.max(.2, Math.abs(Math.sin(this.shownPitch)));
     this.focus.x = clamp(this.focus.x - Math.cos(this.shownYaw) * right - Math.sin(this.shownYaw) * forward, -HALF, HALF);
     this.focus.z = clamp(this.focus.z + Math.sin(this.shownYaw) * right - Math.cos(this.shownYaw) * forward, -HALF, HALF);
   }
@@ -81,13 +89,16 @@ export class ResortCameras {
     this.blend = mix(this.blend, Number(this.explore), smooth);
     if (this.blend < .001) this.blend = 0;
     if (this.blend > .999) this.blend = 1;
-    this.focus.y = mix(160, Math.max(105, map.sample(this.focus.x, this.focus.z).elevation + 25), this.blend);
+    this.shownSpan = approach(this.shownSpan, this.span, smooth);
+    const ground = map.sample(this.focus.x, this.focus.z).elevation;
+    const nearGround = 1 - T.MathUtils.smoothstep(this.shownSpan, 90, 380);
+    const exploreHeight = mix(Math.max(105, ground + 25), ground + 12, nearGround);
+    this.focus.y = mix(home.y, exploreHeight, this.blend);
     if (this.shownFocus.distanceToSquared(this.focus) < .001) this.shownFocus.copy(this.focus);
     else this.shownFocus.lerp(this.focus, inputSmooth);
 
     this.shownYaw = approach(this.shownYaw, this.yaw, inputSmooth);
     this.shownPitch = approach(this.shownPitch, this.pitch, inputSmooth);
-    this.shownSpan = approach(this.shownSpan, this.span, smooth);
     const mobileBlend = clamp((this.aspect - .55) / .60, 0, 1);
     const span = this.fittedSpan(this.shownSpan) * mix(1, mix(.57, .78, mobileBlend), this.blend);
     const viewHeight = span / 2;
@@ -98,17 +109,28 @@ export class ResortCameras {
     const camera = this.blend === 0 ? this.ortho : this.perspective;
     camera.position.copy(this.shownFocus).addScaledVector(this.offset, distance);
     if (this.blend > 0) {
-      const floor = map.sample(camera.position.x, camera.position.z).elevation + 24;
-      camera.position.y = Math.max(floor, camera.position.y);
+      // A small footprint protects the near plane on steep terrain. Preserve the
+      // requested gaze when lifting the eye, including when orbiting below the target.
+      const { x, z } = camera.position;
+      const radius = 2;
+      const floor = Math.max(
+        map.sample(x, z).elevation,
+        map.sample(x - radius, z - radius).elevation,
+        map.sample(x + radius, z - radius).elevation,
+        map.sample(x - radius, z + radius).elevation,
+        map.sample(x + radius, z + radius).elevation
+      );
+      camera.position.y = Math.max(floor + clearance, camera.position.y);
+      this.gaze.copy(camera.position).addScaledVector(this.offset, -distance);
       this.perspective.aspect = this.aspect;
-      this.perspective.fov = T.MathUtils.radToDeg(2 * Math.atan(viewHeight / camera.position.distanceTo(this.shownFocus)));
+      this.perspective.fov = T.MathUtils.radToDeg(2 * Math.atan(viewHeight / distance));
     } else {
       this.ortho.left = -viewHeight * this.aspect;
       this.ortho.right = viewHeight * this.aspect;
       this.ortho.top = viewHeight;
       this.ortho.bottom = -viewHeight;
     }
-    camera.lookAt(this.shownFocus);
+    camera.lookAt(this.blend > 0 ? this.gaze : this.shownFocus);
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld();
     return camera;

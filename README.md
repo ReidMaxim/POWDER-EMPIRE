@@ -55,3 +55,5 @@ Once the job succeeds, open its Pages URL in a fresh browser session, check both
 - `src/main.ts` wires the modules into the renderer and performs terrain raycasts.
 
 Build tools and tycoon values are placeholders for later missions.
+
+[Mission 001.5 terrain and camera notes](docs/MISSION-001-5.md)

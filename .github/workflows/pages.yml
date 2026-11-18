@@ -2,20 +2,21 @@ name: Deploy Powder Empire
 
 on:
   push:
-    branches: [main]
+    branches: [main, mission-001-5-mountain-refinement]
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: github-pages
+  group: ${{ github.ref == 'refs/heads/main' && 'github-pages' || github.ref }}
   cancel-in-progress: false
 
 jobs:
   build:
+    permissions:
+      contents: read
+      pages: read
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -26,12 +27,25 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v4
+      - if: github.ref == 'refs/heads/main'
+        uses: actions/configure-pages@v5
+      - if: github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v4
         with:
           path: dist
+      - if: github.ref != 'refs/heads/main'
+        uses: actions/upload-artifact@v6
+        with:
+          name: powder-empire-preview
+          path: dist
+          if-no-files-found: error
   deploy:
+    if: github.ref == 'refs/heads/main'
     needs: build
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     runs-on: ubuntu-latest
     environment:
       name: github-pages

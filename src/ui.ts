@@ -86,6 +86,17 @@ export function createUI(root: HTMLElement, preferences: Preferences, actions: A
   let terrain: Heightmap | undefined;
   let point: { x: number; z: number } | undefined;
   let exploring = false;
+  const touch = matchMedia('(pointer: coarse)');
+  const cameraHint = get('camera-hint');
+  const updateCameraHint = () => {
+    if (touch.matches) {
+      cameraHint.textContent = exploring ? 'Drag to orbit · 2 fingers to pan · Pinch to zoom' : 'Drag to pan · Pinch to zoom';
+    } else {
+      cameraHint.textContent = exploring ? 'Drag to orbit · Shift + drag to pan' : 'Drag to pan · Scroll to zoom';
+    }
+  };
+  touch.addEventListener('change', updateCameraHint);
+  updateCameraHint();
   let mapImage: ImageData | undefined;
   const settingsButton = root.querySelector<HTMLButtonElement>('.settings')!;
   const sync = () => {
@@ -135,7 +146,7 @@ export function createUI(root: HTMLElement, preferences: Preferences, actions: A
       exploring = active;
       manage.setAttribute('aria-pressed', String(!active));
       explore.setAttribute('aria-pressed', String(active));
-      get('camera-hint').textContent = active ? 'Drag to orbit · Shift + drag to pan' : 'Drag to pan · Scroll to zoom';
+      updateCameraHint();
     },
     terrain(map: Heightmap) {
       terrain = map;
