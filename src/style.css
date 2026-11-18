@@ -232,3 +232,5 @@ kbd { font: 700 10px var(--mono); color: var(--muted); display: grid; place-item
 @media (min-width: 691px) {
   .trail-panel { max-height: calc(100dvh - 235px); overflow: auto; }
 }
+#lift-site-field { display: flex; align-items:center; justify-content: space-between; gap:5px; margin: 4px 0 6px; }
+#lift-site { color:inherit; background:#29474d; border:1px solid var(--line); border-radius:4px; max-width:60%; padding:4px; }

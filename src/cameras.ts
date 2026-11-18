@@ -39,6 +39,8 @@ export class ResortCameras {
   private shownYaw = initialYaw;
   private pitch = isoPitch;
   private shownPitch = isoPitch;
+  private worldHalf = HALF;
+  private overviewHeight = home.y;
   private span = overviewSpan;
   private shownSpan = overviewSpan;
   private blend = 0;
@@ -46,6 +48,11 @@ export class ResortCameras {
   fogNear = 0;
   explore = false;
   reducedMotion = false;
+
+  setWorldSpan(span: number) {
+    this.worldHalf = span / 2;
+    this.overviewHeight = home.y + (span - 2 * HALF) * .10;
+  }
 
   resize(width: number, height: number) {
     this.aspect = width / Math.max(1, height);
@@ -65,7 +72,7 @@ export class ResortCameras {
     this.focus.copy(home);
     this.yaw = initialYaw + Math.round((this.shownYaw - initialYaw) / (2 * Math.PI)) * 2 * Math.PI;
     this.pitch = this.explore ? .44 : isoPitch;
-    this.span = overviewSpan;
+    this.span = overviewSpan*this.worldHalf/HALF;
   }
 
   rotate(turn: number) {
@@ -75,7 +82,7 @@ export class ResortCameras {
 
   zoom(amount: number) {
     if (this.tracked) this.trackingSpan = clamp(this.trackingSpan*Math.exp(amount),55,600);
-    else this.span = clamp(this.span * Math.exp(amount), this.explore ? nearExploreSpan : 76, 1600);
+    else this.span = clamp(this.span * Math.exp(amount), this.explore ? nearExploreSpan : 76, 1600*this.worldHalf/HALF);
   }
 
   setDragging(active: boolean) {
@@ -95,8 +102,8 @@ export class ResortCameras {
     }
     const scale = this.fittedSpan(this.span) / this.height;
     const right = dx * scale, forward = dy * scale / Math.max(.2, Math.abs(Math.sin(this.shownPitch)));
-    this.focus.x = clamp(this.focus.x - Math.cos(this.shownYaw) * right - Math.sin(this.shownYaw) * forward, -HALF, HALF);
-    this.focus.z = clamp(this.focus.z + Math.sin(this.shownYaw) * right - Math.cos(this.shownYaw) * forward, -HALF, HALF);
+    this.focus.x = clamp(this.focus.x - Math.cos(this.shownYaw) * right - Math.sin(this.shownYaw) * forward, -this.worldHalf, this.worldHalf);
+    this.focus.z = clamp(this.focus.z + Math.sin(this.shownYaw) * right - Math.cos(this.shownYaw) * forward, -this.worldHalf, this.worldHalf);
   }
 
   private fittedSpan(span: number) {
@@ -113,7 +120,7 @@ export class ResortCameras {
     const ground = map.sample(this.focus.x, this.focus.z).elevation;
     const nearGround = 1 - T.MathUtils.smoothstep(this.shownSpan, 90, 380);
     const exploreHeight = mix(Math.max(105, ground + 25), ground + 12, nearGround);
-    this.focus.y = mix(home.y, exploreHeight, this.blend);
+    this.focus.y = mix(this.overviewHeight, exploreHeight, this.blend);
     const target = this.tracked ? this.trackedFocus.set(this.tracked.x,this.tracked.y+3,this.tracked.z) : this.focus;
     if (this.shownFocus.distanceToSquared(target) < .001) this.shownFocus.copy(target);
     else this.shownFocus.lerp(target, inputSmooth);

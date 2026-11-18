@@ -3,7 +3,7 @@ import { ResortCameras } from './cameras';
 import { bindControls } from './controls';
 import { createEnvironment, createMountain } from './environment';
 import { loadPreferences, savePreferences, type Preferences } from './preferences';
-import { generateTerrain } from './terrain';
+import { generateTerrain, type TerrainVersion } from './terrain';
 import { createUI } from './ui';
 import type { GroundPoint } from './lifts/alignment';
 import { createConstruction } from './lifts/construction';
@@ -34,15 +34,15 @@ const switchMode = () => {
   ui.mode(cameras.explore);
   changeTrailView(cameras.explore);
 };
-let updateSettings = (_next: Preferences) => true;
+let updateSettings = (_next: Preferences, _version?:TerrainVersion) => true;
 const root = document.querySelector<HTMLElement>('#app')!;
 const ui = createUI(root, preferences, {
   switchMode,
   rotate: turn => cameras.rotate(turn),
   zoom: amount => cameras.zoom(amount),
   reset: () => { clearGuestFollow(); cameras.reset(); },
-  preferences(next) {
-    if (!updateSettings(next)) return false;
+  preferences(next,version) {
+    if (!updateSettings(next,version)) return false;
     savePreferences(next);
     return true;
   }
@@ -62,7 +62,9 @@ function start() {
   ui.world.append(canvas);
   const scene = new T.Scene();
   const fog = createEnvironment(scene);
-  let map = generateTerrain(preferences.seed);
+  let map = generateTerrain(preferences.seed,saved.terrainVersion);
+  cameras.setWorldSpan(map.span);
+  cameras.reset();
   let mountain = createMountain(map);
   let resort = createResort(map, saved);
   let visitors = createGuestSimulation(map,resort);
@@ -172,7 +174,9 @@ function start() {
     },
     surveyed() {
       if (!construction.draft) return;
-      construction.place(construction.draft.lower ? map.sites.upper : map.sites.base);
+      const selector=root.querySelector<HTMLSelectElement>('#lift-site')!;
+      const site=map.liftSites[Number(selector.value)]??map.liftSites[0];
+      construction.place(construction.draft.lower ? site.upper : site.lower);
       updateLiftPanel();
     },
     confirm() {
@@ -332,20 +336,38 @@ function start() {
     pace(n) { if (n===1||n===2||n===4||n===8) guestPace=n; }
   });
   updateGuests();
-  updateSettings = next => {
-    if (map.seed !== next.seed) {
+  updateSettings = (next,version=map.version) => {
+    if (map.seed !== next.seed || map.version !== version) {
       const newSave = beginNewResort(resort, next.seed, () =>
-        window.confirm('Start a new resort on this seed? This clears all lifts and trails and resets funds to $250,000.')
+        window.confirm(map.version===version
+          ? 'Start a new resort on this seed? This clears this layout and resets funds to $250,000.'
+          : 'Switch mountain presets? Your current layout is kept separately.'),
+        version
       );
       if (!newSave) return false;
+      let nextSave=newSave;
+      if (version!==map.version) {
+        if (!writeResort(storage,resort.snapshot(),true) && resort.needsNewResortConfirmation()) {
+          liftPanel.notice('The current layout could not be saved. Retry switching when browser storage is available.');
+          return false;
+        }
+        const savedPreset=readResort(storage,next.seed,version);
+        if (savedPreset.terrainVersion===version && (savedPreset.seed===next.seed || next.seed===map.seed)) nextSave=savedPreset;
+        else if (savedPreset.terrainVersion===version && savedPreset.seed!==next.seed && savedPreset.nextId+savedPreset.nextTrailId>2 &&
+          !window.confirm('The other preset has a layout on another seed. Replace it with this new seed?')) return false;
+      }
       for (const id of resort.lifts.keys()) lifts.remove(id);
       for (const id of resort.trails.keys()) trails.remove(id);
       trailDraft = undefined;
       selectedTrail = undefined;
       trails.draft(map, []);
       mountain.dispose();
-      map = generateTerrain(newSave.seed);
-      resort = createResort(map, newSave);
+      next.seed = nextSave.seed;
+      map = generateTerrain(nextSave.seed,nextSave.terrainVersion);
+      cameras.setWorldSpan(map.span);
+      resort = createResort(map, nextSave);
+      for(const lift of resort.lifts.values()) lifts.add(map,lift);
+      for(const trail of resort.trails.values()) trails.add(map,trail);
       visitors = createGuestSimulation(map,resort);
       selectGuest();
       people.update(visitors.guests.values(),guestClock);

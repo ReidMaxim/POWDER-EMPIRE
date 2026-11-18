@@ -1,8 +1,10 @@
 # Powder Empire
 
-**Mission 004 · First Guests**
+**Mission 004.5 · Mountain Evolution**
 
 A ski resort tycoon prototype on a seeded mountain. Survey Frostpeak, build fixed-grip chairlifts, lay out ski trails, and watch guests use the resort. The browser runs the entire project with Three.js, TypeScript, and Vite.
+
+Select **Frostpeak Evolution** in Settings and choose **Generate** to start on the wider mountain. Existing saves open on Frostpeak Classic. Each preset keeps its own local layout. See the [Mountain Evolution mission report](docs/mission-004-5/REPORT.md) for the validated three-lift, eight-trail layout and screenshots.
 
 ## Run locally
 

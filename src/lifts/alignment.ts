@@ -1,4 +1,4 @@
-import { HALF, type Heightmap } from '../terrain.ts';
+import type { Heightmap } from '../terrain.ts';
 
 export interface GroundPoint { x: number; z: number }
 export interface Point3 extends GroundPoint { y: number }
@@ -31,7 +31,7 @@ export interface LiftAlignment {
 export type Proposal = { alignment?: LiftAlignment; issues: string[] };
 const near = (p: GroundPoint, q: GroundPoint) => Math.hypot(p.x - q.x, p.z - q.z);
 const length3 = (p: Point3, q: Point3) => Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z);
-const inside = ({ x, z }: GroundPoint, inset: number) => Math.abs(x) <= HALF - inset && Math.abs(z) <= HALF - inset;
+const inside = ({x,z}:GroundPoint, half:number, inset:number) => Math.max(Math.abs(x),Math.abs(z)) <= half-inset;
 
 export function distanceToRun(p: GroundPoint, a: GroundPoint, b: GroundPoint) {
   const dx = b.x - a.x, dz = b.z - a.z;
@@ -50,7 +50,7 @@ function conflict(a: GroundPoint, b: GroundPoint, lift: LiftAlignment) {
 export function checkStation(map: Heightmap, point: GroundPoint): string | undefined {
   const { stationRadius, maxStationGrade } = FIXED_GRIP;
   if (!Number.isFinite(point.x) || !Number.isFinite(point.z)) return 'Select a point with valid terrain data.';
-  if (!inside(point, stationRadius)) return `Leave at least ${stationRadius} m between the terminal and the map edge.`;
+  if (!inside(point, map.span/2, stationRadius)) return `Leave at least ${stationRadius} m between the terminal and the map edge.`;
   const { elevation, grade } = map.sample(point.x, point.z);
   if (!Number.isFinite(elevation) || !Number.isFinite(grade)) return 'No usable terrain data at this terminal.';
   if (grade > maxStationGrade) return `The terminal footprint must be ${maxStationGrade}% grade or less.`;

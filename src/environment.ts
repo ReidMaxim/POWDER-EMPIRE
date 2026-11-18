@@ -1,6 +1,6 @@
 import type { GroundPoint } from './lifts/alignment';
 import * as T from 'three';
-import { HALF, randomStream, type Heightmap } from './terrain';
+import { randomStream, type Heightmap } from './terrain.ts';
 import type { Preferences } from './preferences';
 
 const snow = new T.Color('#e7f4fa');
@@ -14,20 +14,20 @@ function terrainMesh(map: Heightmap) {
   const colors = new Float32Array(positions.length);
   const indices = new Uint32Array((size - 1) ** 2 * 6);
   const random = randomStream(map.seed + '/snow');
-  const cell = span / (size - 1);
+  const cell = span / (size - 1), half=span/2;
   const tint = new T.Color();
   let index = 0;
   for (let j = 0; j < size; j++) {
     for (let i = 0; i < size; i++) {
       const p = j * size + i;
-      const x = i * cell - HALF, z = j * cell - HALF, h = heights[p];
+      const x = i * cell - half, z = j * cell - half, h = heights[p];
       positions.set([x, h, z], p * 3);
       const { grade } = map.sample(x, z);
       const grain = random();
-      const rock = T.MathUtils.smoothstep(grade + grain * 34, 116, 240) * T.MathUtils.smoothstep(h, 55, 215);
+      const rock = T.MathUtils.smoothstep(grade + grain * 34, map.version==='classic'?116:97, map.version==='classic'?240:194) * T.MathUtils.smoothstep(h, 55, 215);
       tint.copy(shade).lerp(snow, .60 + grain * .3 + Math.min(h / 1400, .10)).lerp(stone, rock * .77);
       const basin = 1 - T.MathUtils.smoothstep(Math.hypot((x + 220) / 150, (z - 272) / 73), .67, 1);
-      tint.lerp(lake, basin * .82);
+      if(map.version==='classic') tint.lerp(lake, basin * .82);
       tint.toArray(colors, p * 3);
       if (i < size - 1 && j < size - 1) {
         indices.set([p, p + size, p + 1, p + 1, p + size, p + size + 1], index);
@@ -44,15 +44,16 @@ function terrainMesh(map: Heightmap) {
 }
 
 function terrainSides(map: Heightmap) {
+  const half=map.span/2;
   const rim: [number, number][] = [];
   const sides = [
-    (n: number): [number, number] => [n, -HALF],
-    (n: number): [number, number] => [HALF, n],
-    (n: number): [number, number] => [-n, HALF],
-    (n: number): [number, number] => [-HALF, -n]
+    (n: number): [number, number] => [n, -half],
+    (n: number): [number, number] => [half, n],
+    (n: number): [number, number] => [-n, half],
+    (n: number): [number, number] => [-half, -n]
   ];
   for (const side of sides) {
-    for (let i = 0; i < map.size - 1; i++) rim.push(side(-HALF + i * map.span / (map.size - 1)));
+    for (let i = 0; i < map.size - 1; i++) rim.push(side(-half + i * map.span / (map.size - 1)));
   }
   const positions: number[] = [], colors: number[] = [];
   const top = new T.Color('#9bb9ca'), bottom = new T.Color('#3e586a');
@@ -72,7 +73,9 @@ function terrainSides(map: Heightmap) {
 function scatter(map: Heightmap) {
   const group = new T.Group();
   const maxTrees = 2200;
-  const stations = Object.values(map.sites);
+  const classic=map.version==='classic';
+  const stations=classic ? Object.values(map.sites) : map.liftSites.flatMap(site=>[site.lower,site.upper]);
+  const coverage=map.span-38;
   const treeGeometries = [
     new T.CylinderGeometry(.26, .42, 4.3, 5),
     new T.ConeGeometry(2.45, 5.9, 6),
@@ -89,13 +92,16 @@ function scatter(map: Heightmap) {
   const forestPoints: GroundPoint[] = [];
   let count = 0;
   for (let i = 0; i < 13000 && count < maxTrees; i++) {
-    const x = (random() - .5) * 922, z = (random() - .5) * 922;
+    const x = (random() - .5) * coverage, z = (random() - .5) * coverage;
     const { elevation, grade } = map.sample(x, z);
     const cover = random();
     const band = .48 + .25 * Math.sin(x * .030 + z * .015) + .22 * Math.cos(z * .032 - x * .013);
     const clearing = Math.hypot((x + 190) / 214, (z - 278) / 102);
     const face = map.openFace(x, z);
-    if (grade > 82 || elevation > 285 || (clearing < 1.02 && cover > .015) || cover > band * .63 * (1 - face * .985)) continue;
+    if (grade > (classic?82:67) || elevation > (classic?285:345) ||
+      (classic && clearing < 1.02 && cover > .015) ||
+      (!classic && z>278 && Math.abs(x)<185 && cover>.045) ||
+      cover > band*.63*(1-face*.985)) continue;
     if (stations.some(site => Math.hypot(x - site.x, z - site.z) < site.radius + 4)) continue;
     const scale = .7 + random() ** 1.4 * 1.55;
     matrix.scale.setScalar(scale);
@@ -112,7 +118,7 @@ function scatter(map: Heightmap) {
   trees.forEach(tree => { tree.count = count; group.add(tree); });
   let rockCount = 0;
   for (let i = 0; i < 2400 && rockCount < 220; i++) {
-    const x = (random() - .5) * 920, z = (random() - .5) * 920;
+    const x = (random() - .5) * (coverage-2), z = (random() - .5) * (coverage-2);
     const { elevation, grade } = map.sample(x, z);
     if (elevation < 55 || grade < 43 || map.openFace(x, z) > .86) continue;
     const size = 1 + random() ** 2 * 7;

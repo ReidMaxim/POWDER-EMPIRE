@@ -1,4 +1,4 @@
-import { BASE_ALTITUDE, HALF, type Heightmap, type TerrainSample } from './terrain';
+import { BASE_ALTITUDE, terrainTitles, isTerrainVersion, type TerrainVersion, type Heightmap, type TerrainSample } from './terrain';
 import type { Preferences, Quality } from './preferences';
 
 type Actions = {
@@ -6,14 +6,14 @@ type Actions = {
   rotate(turn: number): void;
   zoom(amount: number): void;
   reset(): void;
-  preferences(next: Preferences): boolean;
+  preferences(next: Preferences, version?: TerrainVersion): boolean;
 };
 
 export function createUI(root: HTMLElement, preferences: Preferences, actions: Actions) {
   root.innerHTML = `
     <main class="world" aria-label="Interactive ski resort terrain"></main>
     <header class="topbar">
-      <div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i></span><div><h1>POWDER<span> EMPIRE</span></h1><p>MISSION 004 <b> / </b> FIRST GUESTS</p></div></div>
+      <div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i></span><div><h1>POWDER<span> EMPIRE</span></h1><p>MISSION 004.5 <b> / </b> MOUNTAIN EVOLUTION</p></div></div>
       <div class="status" aria-label="Resort status">
         <span class="prototype" title="Weather and date are prototype values"><i></i> PROTOTYPE</span>
         <div class="stat"><span>FUNDS</span><strong id="resort-funds" aria-live="polite">$250,000</strong></div>
@@ -25,7 +25,7 @@ export function createUI(root: HTMLElement, preferences: Preferences, actions: A
     <section class="location" aria-label="Current terrain">
       <div class="eyebrow"><span></span> ALPINE RESERVE</div>
       <h2>Frostpeak</h2>
-      <p>SEED <strong id="seed-label"></strong></p>
+      <p><span id="mountain-preset"></span> · SEED <strong id="seed-label"></strong></p>
     </section>
     <aside class="inspector panel" id="terrain-panel" aria-labelledby="inspect-title">
       <div class="panel-title"><div><span class="eyebrow">SURVEY TOOL</span><h2 id="inspect-title">Terrain inspector</h2></div><span class="reticle" aria-hidden="true">⌖</span></div>
@@ -40,6 +40,7 @@ export function createUI(root: HTMLElement, preferences: Preferences, actions: A
       <div id="lift-build" class="lift-content" hidden>
         <strong id="lift-step"></strong>
         <p id="lift-feedback" role="status"></p>
+        <label id="lift-site-field" hidden>Surveyed area <select id="lift-site"></select></label>
         <button type="button" id="lift-surveyed" class="lift-survey"></button>
         <dl id="lift-summary" class="lift-stats" hidden></dl>
         <details class="lift-limits"><summary>Placement limits</summary><p id="lift-limits-text"></p></details>
@@ -99,7 +100,7 @@ export function createUI(root: HTMLElement, preferences: Preferences, actions: A
     <section class="minimap panel" aria-label="Terrain overview">
       <div class="map-title"><span>TOPOGRAPHY</span><span>N ↑</span></div>
       <canvas id="topography" width="144" height="100" aria-label="Seeded elevation overview"></canvas>
-      <div class="map-footer"><span>0</span><i></i><span>960 m</span></div>
+      <div class="map-footer"><span>0</span><i></i><span id="map-span">960 m</span></div>
     </section>
     <nav class="build panel" aria-label="Resort construction">
       <div class="build-title"><span>RESORT TOOLS</span><small>FIRST GUESTS</small></div>
@@ -127,8 +128,9 @@ export function createUI(root: HTMLElement, preferences: Preferences, actions: A
       <p id="camera-hint">Drag to pan · Scroll to zoom</p>
     </section>
     <dialog class="panel settings-dialog">
-      <form method="dialog" class="dialog-title"><div><span class="eyebrow">FIRST GUESTS</span><h2>Settings</h2></div><button aria-label="Close settings" value="close">×</button></form>
+      <form method="dialog" class="dialog-title"><div><span class="eyebrow">MOUNTAIN EVOLUTION</span><h2>Settings</h2></div><button aria-label="Close settings" value="close">×</button></form>
       <form id="seed-form">
+        <label class="setting-line">Mountain <select id="terrain-version"><option value="classic">Frostpeak Classic</option><option value="evolution">Frostpeak Evolution</option></select></label>
         <label for="seed">Terrain seed</label>
         <div class="seed-actions"><input id="seed" name="seed" maxlength="40" required><button type="submit">Generate</button></div>
         <button id="random" type="button">Randomize seed</button>
@@ -141,6 +143,7 @@ export function createUI(root: HTMLElement, preferences: Preferences, actions: A
   `;
   const get = <E extends HTMLElement>(id: string) => root.querySelector<E>('#' + id)!;
   const dialog = root.querySelector<HTMLDialogElement>('dialog')!;
+  const preset = get<HTMLSelectElement>('terrain-version');
   const seed = get<HTMLInputElement>('seed'), quality = get<HTMLSelectElement>('quality');
   const trees = get<HTMLInputElement>('trees'), motion = get<HTMLInputElement>('motion');
   const manage = get<HTMLButtonElement>('management'), explore = get<HTMLButtonElement>('explore');
@@ -164,23 +167,24 @@ export function createUI(root: HTMLElement, preferences: Preferences, actions: A
   const settingsButton = root.querySelector<HTMLButtonElement>('.settings')!;
   const sync = () => {
     seed.value = preferences.seed;
+    preset.value = terrain?.version ?? 'classic';
     quality.value = preferences.quality;
     trees.checked = preferences.trees;
     motion.checked = preferences.reducedMotion;
     get('seed-label').textContent = preferences.seed;
   };
-  const save = (next: Partial<Preferences>) => {
+  const save = (next: Partial<Preferences>, version?: TerrainVersion) => {
     const proposed = { ...preferences, ...next };
-    if (actions.preferences(proposed)) Object.assign(preferences, proposed);
+    if (actions.preferences(proposed,version)) Object.assign(preferences, proposed);
     sync();
   };
   settingsButton.onclick = () => { sync(); dialog.showModal(); };
   get<HTMLFormElement>('seed-form').onsubmit = event => {
     event.preventDefault();
-    if (seed.value.trim()) save({ seed: seed.value.trim() });
+    if (seed.value.trim()) save({ seed: seed.value.trim() },isTerrainVersion(preset.value)?preset.value:undefined);
   };
   get<HTMLButtonElement>('random').onclick = () => {
-    save({ seed: 'SNOW-' + crypto.getRandomValues(new Uint32Array(1))[0].toString(36).toUpperCase() });
+    save({ seed: 'SNOW-' + crypto.getRandomValues(new Uint32Array(1))[0].toString(36).toUpperCase() },isTerrainVersion(preset.value)?preset.value:undefined);
   };
   quality.onchange = () => save({ quality: quality.value as Quality });
   trees.onchange = () => save({ trees: trees.checked });
@@ -195,10 +199,19 @@ export function createUI(root: HTMLElement, preferences: Preferences, actions: A
   const drawMap = () => {
     if (!mapImage) return;
     mapContext.putImageData(mapImage, 0, 0);
+    if (terrain?.version==='evolution') {
+      mapContext.fillStyle='#ffd39a';
+      for(const {lower,upper} of terrain.liftSites) for(const p of [lower,upper]) {
+        mapContext.beginPath();
+        mapContext.arc((p.x/terrain.span+.5)*mapCanvas.width,(p.z/terrain.span+.5)*mapCanvas.height,p===upper?2:1.5,0,Math.PI*2);
+        mapContext.fill();
+      }
+    }
     if (!point) return;
     mapContext.fillStyle = '#faaf69';
     mapContext.beginPath();
-    mapContext.arc((point.x + HALF) / (HALF * 2) * mapCanvas.width, (point.z + HALF) / (HALF * 2) * mapCanvas.height, 3, 0, Math.PI * 2);
+    const span=terrain!.span, half=span/2;
+    mapContext.arc((point.x + half) / span * mapCanvas.width, (point.z + half) / span * mapCanvas.height, 3, 0, Math.PI * 2);
     mapContext.fill();
   };
   sync();
@@ -213,10 +226,16 @@ export function createUI(root: HTMLElement, preferences: Preferences, actions: A
     },
     terrain(map: Heightmap) {
       terrain = map;
+      const half=map.span/2;
+      get('mountain-preset').textContent=terrainTitles[map.version].split(' ')[1];
+      get('map-span').textContent=map.span+' m';
+      const selector=get<HTMLSelectElement>('lift-site');
+      selector.replaceChildren(...map.liftSites.map((site,index)=>new Option(site.name,String(index))));
+      get('lift-site-field').hidden=map.liftSites.length<2;
       mapImage = mapContext.createImageData(mapCanvas.width, mapCanvas.height);
       for (let y = 0; y < mapCanvas.height; y++) {
         for (let x = 0; x < mapCanvas.width; x++) {
-          const sample = terrain.sample((x / mapCanvas.width * 2 - 1) * HALF, (y / mapCanvas.height * 2 - 1) * HALF);
+          const sample = terrain.sample((x / mapCanvas.width * 2 - 1) * half, (y / mapCanvas.height * 2 - 1) * half);
           const level = Math.min(sample.elevation / 540, 1);
           const contour = sample.elevation % 54 < 6 ? 25 : 0;
           mapImage.data.set([32 + level * 151 + contour, 64 + level * 135 + contour, 68 + level * 120 + contour, 255], (y * mapCanvas.width + x) * 4);

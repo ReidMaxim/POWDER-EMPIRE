@@ -1,4 +1,4 @@
-import type { Heightmap } from '../terrain.ts';
+import { isTerrainVersion, type Heightmap, type TerrainVersion } from '../terrain.ts';
 import { FIXED_GRIP, planLift, wrapDistance, type GroundPoint, type LiftAlignment } from './alignment.ts';
 
 import { BANDS, TRAIL, isWidth, planTrail, type TrailWidth } from '../trails/route.ts';
@@ -18,7 +18,8 @@ export interface LiftRecord {
 }
 
 export interface ResortSave {
-  version: 2;
+  version: 3;
+  terrainVersion: TerrainVersion;
   seed: string;
   funds: number;
   nextId: number;
@@ -57,20 +58,21 @@ function trailValid(value: unknown): value is TrailRecord {
     item.points.length >= 2 && item.points.length <= TRAIL.maxPoints && item.points.every(pointValid);
 }
 
-export function freshResort(seed: string): ResortSave {
-  return { version: 2, seed, funds: STARTING_FUNDS, nextId: 1, lifts: [], trails: [], nextTrailId: 1 };
+export function freshResort(seed: string, terrainVersion:TerrainVersion = 'classic'): ResortSave {
+  return { version: 3, terrainVersion, seed, funds: STARTING_FUNDS, nextId: 1, lifts: [], trails: [], nextTrailId: 1 };
 }
 
-export function readResort(storage: StoragePort | undefined, legacySeed: string): ResortSave {
+export function readResort(storage: StoragePort | undefined, legacySeed: string, slot?:TerrainVersion): ResortSave {
   try {
-    const save = JSON.parse(storage?.getItem(saveKey) ?? 'null') as (Omit<ResortSave, 'version'> & { version: number }) | null;
-    if (!save || (save.version !== 1 && save.version !== 2) || !seedValid(save.seed) || !Number.isSafeInteger(save.funds) ||
+    const save = JSON.parse(storage?.getItem(slot ? saveKey+'.'+slot : saveKey) ?? 'null') as (Omit<ResortSave, 'version'> & { version: number }) | null;
+    if (!save || (save.version !== 1 && save.version !== 2 && save.version !== 3) || !seedValid(save.seed) || !Number.isSafeInteger(save.funds) ||
       save.funds < 0 || save.funds > STARTING_FUNDS || !Number.isSafeInteger(save.nextId) || save.nextId < 1 ||
       !Array.isArray(save.lifts) || save.lifts.length > Math.floor(STARTING_FUNDS / FIXED_GRIP.baseCost) ||
       !save.lifts.every(liftValid)) return freshResort(legacySeed);
     if (new Set(save.lifts.map(lift => lift.id)).size !== save.lifts.length ||
       save.lifts.some(lift => lift.id >= save.nextId)) return freshResort(legacySeed);
-    const base = { ...freshResort(save.seed), funds: save.funds, nextId: save.nextId, lifts: save.lifts };
+    const version = save.version === 3 && isTerrainVersion(save.terrainVersion) ? save.terrainVersion : 'classic';
+    const base = { ...freshResort(save.seed,version), funds: save.funds, nextId: save.nextId, lifts: save.lifts };
     if (save.version === 1) return base;
     if (!Array.isArray(save.trails) || !Number.isSafeInteger(save.nextTrailId) || save.nextTrailId < 1) return base;
     const trails = save.trails.filter(trailValid).filter(trail => trail.id < save.nextTrailId);
@@ -80,10 +82,10 @@ export function readResort(storage: StoragePort | undefined, legacySeed: string)
   }
 }
 
-export function writeResort(storage: StoragePort | undefined, save: ResortSave) {
+export function writeResort(storage: StoragePort | undefined, save: ResortSave, archive = false) {
   try {
     if (!storage) return false;
-    storage.setItem(saveKey, JSON.stringify(save));
+    storage.setItem(archive ? saveKey+'.'+save.terrainVersion : saveKey, JSON.stringify(save));
     return true;
   } catch {
     return false;
@@ -91,7 +93,7 @@ export function writeResort(storage: StoragePort | undefined, save: ResortSave) 
 }
 
 export function createResort(map: Heightmap, save: ResortSave) {
-  const state = save.seed === map.seed ? save : freshResort(map.seed);
+  const state = save.seed === map.seed && save.terrainVersion === map.version ? save : freshResort(map.seed,map.version);
   const lifts = new Map<number, OperatingLift>();
   const alignments = () => Array.from(lifts.values(), lift => lift.alignment);
   const trails = new Map<number, BuiltTrail>();
@@ -201,14 +203,14 @@ export function createResort(map: Heightmap, save: ResortSave) {
       return moved;
     },
     snapshot(): ResortSave {
-      return { version: 2, seed: map.seed, funds, nextId, nextTrailId,
+      return { version: 3, terrainVersion:map.version, seed: map.seed, funds, nextId, nextTrailId,
         lifts: Array.from(lifts.values(), ({ alignment: _alignment, ...record }) => record),
         trails: Array.from(trails.values(), ({ route: _route, ...record }) => record) };
     }
   };
 }
 
-export function beginNewResort(current: ReturnType<typeof createResort>, seed: string, confirm: () => boolean) {
-  if (seed === current.snapshot().seed) return undefined;
-  return !current.needsNewResortConfirmation() || confirm() ? freshResort(seed) : undefined;
+export function beginNewResort(current: ReturnType<typeof createResort>, seed: string, confirm: () => boolean, terrainVersion = current.snapshot().terrainVersion) {
+  if (seed === current.snapshot().seed && terrainVersion === current.snapshot().terrainVersion) return undefined;
+  return !current.needsNewResortConfirmation() || confirm() ? freshResort(seed,terrainVersion) : undefined;
 }

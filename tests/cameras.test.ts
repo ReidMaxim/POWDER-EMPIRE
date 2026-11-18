@@ -72,3 +72,32 @@ test('Explore remains above terrain during combined orbit, pitch, zoom, pan and 
     assert.ok(cameras.update(2, map) instanceof PerspectiveCamera);
   }
 });
+
+test('Evolution camera spans the expanded map and follows an upper-mountain guest above terrain', () => {
+  const map = generateTerrain('FROST-001', 'evolution');
+  const cameras = new ResortCameras();
+  cameras.setWorldSpan(map.span);
+  cameras.reducedMotion = true;
+  cameras.resize(1440, 900);
+  cameras.reset();
+  const overview = cameras.update(1, map) as OrthographicCamera;
+  const extent = map.span / 2;
+  for (const x of [-extent, extent]) for (const z of [-extent, extent]) {
+    const corner = new Vector3(x, map.sample(x, z).elevation, z).project(overview);
+    assert.ok(Math.abs(corner.x) < 1 && Math.abs(corner.y) < 1);
+  }
+  cameras.switchMode();
+  cameras.drag(-8000, 0, true);
+  cameras.zoom(-20);
+  cameras.drag(0, -1000, false);
+  const explore = cameras.update(1, map);
+  assert.ok(explore.position.y >= map.sample(explore.position.x, explore.position.z).elevation + 6);
+  closeTo(Math.asin(direction(explore as PerspectiveCamera).y), -EXPLORE_PITCH.min);
+
+  const upper = map.liftSites[2].upper;
+  cameras.track({ x: upper.x, y: upper.elevation, z: upper.z });
+  const follow = cameras.update(1, map);
+  assert.ok(follow.position.y >= map.sample(follow.position.x, follow.position.z).elevation + 6);
+  const guest = new Vector3(upper.x, upper.elevation, upper.z).project(follow);
+  assert.ok(Math.abs(guest.x) < 1 && Math.abs(guest.y) < 1);
+});

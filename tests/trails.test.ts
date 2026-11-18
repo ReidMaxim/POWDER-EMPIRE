@@ -135,7 +135,7 @@ test('version 1 migrates lift phase and funds; trails restore independently with
   let data=JSON.stringify({version:1,seed:liftSave.seed,funds:liftSave.funds,nextId:liftSave.nextId,lifts:liftSave.lifts});
   const storage={getItem:()=>data,setItem:(_:string,value:string)=>{data=value;}};
   const migrated=readResort(storage, terrain.seed);
-  assert.equal(migrated.version,2);
+  assert.equal(migrated.version,3);
   assert.deepEqual(migrated,liftSave);
   const restored=createResort(terrain,migrated);
   const trees=[{x:(start.x+end.x)/2,z:(start.z+end.z)/2}];
